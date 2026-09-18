@@ -1,13 +1,17 @@
 // Offline fixture test only: run with --network none and no account data mounted.
 const fs=require('fs'),ts=require('typescript'),Module=require('module'),assert=require('node:assert/strict');
 const m=new Module('/tmp/connect-fixture.cjs');m._compile(ts.transpileModule(fs.readFileSync(require('path').join(__dirname, '../lib/linkedin/connect.ts'),'utf8'),{compilerOptions:{module:ts.ModuleKind.CommonJS,target:ts.ScriptTarget.ES2022}}).outputText,'/tmp/connect-fixture.cjs');
-const {sendConnectionRequest}=m.exports;
+const {sendConnectionRequest,WeeklyLimitError}=m.exports;
 const {chromium}=require('playwright');
 (async()=>{const browser=await chromium.launch({executablePath:process.env.PLAYWRIGHT_CHROMIUM_EXECUTABLE_PATH||undefined,headless:true,args:['--no-sandbox','--disable-dev-shm-usage']});const checks=[];try{
 const script=`<script>window.sent=0;window.wrong=0;function dialog(){document.body.insertAdjacentHTML('beforeend','<div role="dialog"><button aria-label="Send without a note" onclick="send()">Send now</button></div>')}function send(){window.sent++;document.querySelector('[role=dialog]').remove();document.querySelector('h1,h2').insertAdjacentHTML('afterend','<button aria-label="Pending">Pending</button>')}function menu(){document.body.insertAdjacentHTML('beforeend','<div role="menu"><button role="menuitem" onclick="dialog()">Connect</button></div>')}</script>`;
 const header=(action)=>`<nav><button aria-label="More" onclick="window.wrong++">More</button></nav><main><section><h1>Synthetic Person</h1>${action}</section><aside><button aria-label="More" onclick="window.wrong++">More</button><a href="/messaging/compose">Message someone else</a></aside></main>`;
 const modern=(action,slug='synthetic-fixture')=>`<section><a componentkey="ProfileVerificationTriggerRef-${slug}"><h2>Synthetic Person</h2></a>${action}</section><aside><a href="/messaging/compose">Other person</a><button onclick="window.wrong++">Connect</button></aside>`;
 for(const c of [
+ {name:"Bare-host profile URL supports connection",profileUrl:"https://linkedin.com/in/synthetic-fixture/",html:modern('<button onclick="dialog()">Connect</button>'),sent:1},
+ {name:"Lookalike host rejected",profileUrl:"https://www.linkedin.com.example.com/in/synthetic-fixture/",html:modern('<button>Connect</button>'),error:/Unsupported LinkedIn profile URL/},
+ {name:"Weekly limit before send dialog preserves pause signal",html:header('<button onclick="limit()">Connect</button>'),extra:`<script>function limit(){document.body.insertAdjacentHTML("beforeend",'<div class="ip-fuse-limit-alert__warning">Weekly limit</div>')}</script>`,error:WeeklyLimitError},
+ {name:"Weekly limit after send preserves pause signal",html:header('<button onclick="dialog()">Connect</button>'),extra:`<script>send=function(){document.querySelector("[role=dialog]").remove();document.body.insertAdjacentHTML("beforeend",'<div class="ip-fuse-limit-alert__warning">Weekly limit</div>')}</script>`,error:WeeklyLimitError},
  {name:'Modern h2 profile and French link action',html:'<section>'+modern('<a href="/preload/custom-invite/" aria-label="Inviter Synthetic à rejoindre votre réseau" onclick="event.preventDefault();dialog()">Se connecter</a><a href="/messaging/compose">Message</a>')+'</section>',sent:1},
  {name:'French send confirmation dialog',html:modern('<a href="/preload/custom-invite/" onclick="event.preventDefault();dialog()">Se connecter</a>'),extra:`<script>dialog=function(){document.body.insertAdjacentHTML('beforeend','<div role="dialog"><button onclick="send()">Envoyer sans note</button></div>')}</script>`,sent:1},
  {name:'French expanded pending label prevents duplicate send',html:modern('<a aria-label="En attente, cliquez pour retirer l’invitation envoyée à Synthetic" href="#"></a>'),error:/already pending/},
@@ -35,6 +39,6 @@ for(const c of [
  {name:'Missing send confirmation does not report success',html:header('<button aria-label="Invite Synthetic to connect">Connect</button>'),error:/Outcome unconfirmed/},
  {name:'Missing sent outcome does not report success',html:header('<button onclick="dialog()">Connect</button>'),extra:'<script>send=function(){window.sent++;document.querySelector("[role=dialog]").remove();}</script>',error:/outcome is unconfirmed/,sent:1}
 ]){const page=await browser.newPage();await page.route('**/*',r=>r.abort());page.goto=async()=>{await page.setContent(c.html+script+(c.extra||''));};page.waitForTimeout=async()=>{};if(c.url)page.url=()=>c.url;
- if(c.error)await assert.rejects(sendConnectionRequest(page,'https://www.linkedin.com/in/synthetic-fixture'),c.error);else await sendConnectionRequest(page,'https://www.linkedin.com/in/synthetic-fixture');
+ if(c.error)await assert.rejects(sendConnectionRequest(page,c.profileUrl||'https://www.linkedin.com/in/synthetic-fixture'),c.error);else await sendConnectionRequest(page,c.profileUrl||'https://www.linkedin.com/in/synthetic-fixture');
  assert.equal(await page.evaluate(()=>window.wrong),0);assert.equal(await page.evaluate(()=>window.sent),c.sent||0);checks.push(c.name);await page.close();}
 console.log(JSON.stringify({passed:checks.length,checks,network:'disabled',realAccountUsed:false}));}finally{await browser.close();}})().catch(e=>{console.error(e);process.exitCode=1;});

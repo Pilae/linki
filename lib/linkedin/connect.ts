@@ -54,6 +54,10 @@ export async function sendConnectionRequest(page: Page, linkedinUrl: string): Pr
 
   await page.waitForTimeout(1000);
 
+  // LinkedIn can show the limit immediately after Connect, before a send dialog.
+  const limitPopup = page.locator('div[class*="ip-fuse-limit-alert__warning"]');
+  if (await limitPopup.count() > 0) throw new WeeklyLimitError("Weekly connection limit reached");
+
   // Click "Send without a note" / "Send now"
   const sendBtn = page.locator('[role="dialog"]:visible').locator(
     'button:has-text("Send now"), button[aria-label*="Send without"], button[aria-label*="Send invitation"]:not([aria-label*="note"])'
@@ -67,8 +71,7 @@ export async function sendConnectionRequest(page: Page, linkedinUrl: string): Pr
     throw new Error("Invitation confirmation was not found or was ambiguous. Outcome unconfirmed: check LinkedIn before retrying.");
   }
 
-  // Check for weekly limit popup
-  const limitPopup = page.locator('div[class*="ip-fuse-limit-alert__warning"]');
+  // The limit can also appear after the send action.
   if (await limitPopup.count() > 0) throw new WeeklyLimitError("Weekly connection limit reached");
 
   // Check for error toast
@@ -90,7 +93,7 @@ export async function sendConnectionRequest(page: Page, linkedinUrl: string): Pr
 export async function getConnectionProfileCard(page: Page, linkedinUrl: string) {
   const url = new URL(linkedinUrl);
   const match = url.pathname.match(/^\/in\/([^/]+)\/?$/);
-  if (!match || url.hostname !== "www.linkedin.com") throw new Error("Unsupported LinkedIn profile URL");
+  if (!match || !["www.linkedin.com", "linkedin.com"].includes(url.hostname)) throw new Error("Unsupported LinkedIn profile URL");
   const marker = `ProfileVerificationTriggerRef-${decodeURIComponent(match[1])}`;
   // Observed newer layout: h2 nested inside this profile-specific marker.
   const modern = page.locator(`[componentkey=${JSON.stringify(marker)}]:visible`)
