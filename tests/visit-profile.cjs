@@ -1,6 +1,6 @@
-const fs=require('fs'),ts=require('typescript'),Module=require('module'),assert=require('node:assert/strict');
-function load(file,deps={}){const m=new Module('/tmp/'+file+'.cjs');m.require=n=>deps[n]||require(n);m._compile(ts.transpileModule(fs.readFileSync(require('path').join(__dirname, '../lib/linkedin',file+'.ts'),'utf8'),{compilerOptions:{module:ts.ModuleKind.CommonJS,target:ts.ScriptTarget.ES2022}}).outputText,'/tmp/'+file+'.cjs');return m.exports;}
-const connect=load('connect'),{visitProfile}=load('visit',{'./connect':connect});
+const assert=require('node:assert/strict');
+const {loadLinkedIn}=require('./load-linkedin.cjs');
+const {visitProfile}=loadLinkedIn('visit');
 const {chromium}=require('playwright');
 (async()=>{const browser=await chromium.launch({headless:true,executablePath:process.env.PLAYWRIGHT_CHROMIUM_EXECUTABLE_PATH||undefined,args:['--no-sandbox']});let passed=0;try{for(const c of [
 {badge:"1st",profileUrl:"https://linkedin.com/in/synthetic/",degree:true},{badge:"2nd",profileUrl:"https://linkedin.com/in/synthetic/",degree:false},

@@ -1,5 +1,6 @@
 import type { Page } from "playwright";
 import { getConnectionProfileCard } from "./connect";
+import { linkedinLabel } from "./labels";
 
 /** Read the visited profile's explicit degree badge. A Message link alone is
  * not proof of connection; missing/unsupported markup is an unknown outcome. */
@@ -11,8 +12,8 @@ export async function visitProfile(page: Page, linkedinUrl: string): Promise<{ i
     throw new Error("LinkedIn login or verification is required; connection status is unknown.");
   }
   const card = await getConnectionProfileCard(page, linkedinUrl);
-  const first = card.getByText(/^[·•]?\s*(?:1st|1er)\s*$/i).filter({visible:true});
-  const other = card.getByText(/^[·•]?\s*(?:2nd|2e|3rd|3e)\s*\+?\s*$/i).filter({visible:true});
+  const first = card.getByText(linkedinLabel("firstDegree")).filter({visible:true});
+  const other = card.getByText(linkedinLabel("otherDegree")).filter({visible:true});
   if (!await first.count()) {
     if (await other.count()) return {isFirstDegree:false,messagingUrn:null};
     throw new Error("LinkedIn connection badge could not be verified; no message attempted and connection status remains unchanged.");

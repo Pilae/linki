@@ -14,6 +14,10 @@ They never load account cookies or contact LinkedIn. Assertions cover profile
 scoping, English/French actions, pending invitation detection, send confirmation,
 unknown/conflicting degree badges, and profile-scoped messaging recipients.
 
+English/French labels are shared through `lib/linkedin/labels.ts`. See
+[LINKEDIN-I18N.md](LINKEDIN-I18N.md) for the language-extension procedure and
+the audit of remaining language assumptions throughout the automation.
+
 The overflow selectors and alternative menu roles reconcile the connection
 portion of upstream PR https://github.com/moaljumaa/linki/pull/15 (reviewed at
 `ec7dfd0ad4066c1ea5887b013e8eefc7427a1db2`). Unlike its broad fallback, actions

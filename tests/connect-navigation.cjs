@@ -1,13 +1,19 @@
 // Offline fixture test only: run with --network none and no account data mounted.
-const fs=require('fs'),ts=require('typescript'),Module=require('module'),assert=require('node:assert/strict');
-const m=new Module('/tmp/connect-fixture.cjs');m._compile(ts.transpileModule(fs.readFileSync(require('path').join(__dirname, '../lib/linkedin/connect.ts'),'utf8'),{compilerOptions:{module:ts.ModuleKind.CommonJS,target:ts.ScriptTarget.ES2022}}).outputText,'/tmp/connect-fixture.cjs');
-const {sendConnectionRequest,WeeklyLimitError}=m.exports;
+const assert=require('node:assert/strict');
+const {loadLinkedIn}=require('./load-linkedin.cjs');
+const {sendConnectionRequest,WeeklyLimitError}=loadLinkedIn('connect');
 const {chromium}=require('playwright');
 (async()=>{const browser=await chromium.launch({executablePath:process.env.PLAYWRIGHT_CHROMIUM_EXECUTABLE_PATH||undefined,headless:true,args:['--no-sandbox','--disable-dev-shm-usage']});const checks=[];try{
 const script=`<script>window.sent=0;window.wrong=0;function dialog(){document.body.insertAdjacentHTML('beforeend','<div role="dialog"><button aria-label="Send without a note" onclick="send()">Send now</button></div>')}function send(){window.sent++;document.querySelector('[role=dialog]').remove();document.querySelector('h1,h2').insertAdjacentHTML('afterend','<button aria-label="Pending">Pending</button>')}function menu(){document.body.insertAdjacentHTML('beforeend','<div role="menu"><button role="menuitem" onclick="dialog()">Connect</button></div>')}</script>`;
 const header=(action)=>`<nav><button aria-label="More" onclick="window.wrong++">More</button></nav><main><section><h1>Synthetic Person</h1>${action}</section><aside><button aria-label="More" onclick="window.wrong++">More</button><a href="/messaging/compose">Message someone else</a></aside></main>`;
 const modern=(action,slug='synthetic-fixture')=>`<section><a componentkey="ProfileVerificationTriggerRef-${slug}"><h2>Synthetic Person</h2></a>${action}</section><aside><a href="/messaging/compose">Other person</a><button onclick="window.wrong++">Connect</button></aside>`;
 for(const c of [
+ {name:'French invite accessible name without URL',html:modern('<button aria-label="Inviter Synthetic à rejoindre votre réseau" onclick="dialog()"></button>'),sent:1},
+ {name:'French Plus menu and localized action',html:modern('<button onclick="menu()">Plus</button>'),extra:`<script>menu=function(){document.body.insertAdjacentHTML('beforeend','<div role="menu"><button onclick="dialog()">Se connecter</button></div>')}</script>`,sent:1},
+ {name:'French invitation sent toast confirms',html:modern('<button onclick="dialog()">Se connecter</button>'),extra:`<script>send=function(){window.sent++;document.querySelector('[role=dialog]').remove();document.body.insertAdjacentHTML('beforeend','<div>Invitation envoyée</div>')}</script>`,sent:1},
+ {name:'Unknown Connect label is not guessed',html:modern('<button onclick="dialog()">Conectar</button>'),error:/No unique More/},
+ {name:'Unknown send label is not guessed',html:modern('<button onclick="dialog()">Connect</button>'),extra:`<script>dialog=function(){document.body.insertAdjacentHTML('beforeend','<div role="dialog"><button onclick="send()">Enviar</button></div>')}</script>`,error:/Outcome unconfirmed/},
+ {name:'Add-note invitation control is not used to send',html:modern('<button onclick="dialog()">Connect</button>'),extra:`<script>dialog=function(){document.body.insertAdjacentHTML('beforeend','<div role="dialog"><button aria-label="Send invitation with a note" onclick="send()">Send invitation with a note</button></div>')}</script>`,error:/Outcome unconfirmed/},
  {name:"Bare-host profile URL supports connection",profileUrl:"https://linkedin.com/in/synthetic-fixture/",html:modern('<button onclick="dialog()">Connect</button>'),sent:1},
  {name:"Lookalike host rejected",profileUrl:"https://www.linkedin.com.example.com/in/synthetic-fixture/",html:modern('<button>Connect</button>'),error:/Unsupported LinkedIn profile URL/},
  {name:"Weekly limit before send dialog preserves pause signal",html:header('<button onclick="limit()">Connect</button>'),extra:`<script>function limit(){document.body.insertAdjacentHTML("beforeend",'<div class="ip-fuse-limit-alert__warning">Weekly limit</div>')}</script>`,error:WeeklyLimitError},
