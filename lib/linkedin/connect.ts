@@ -49,7 +49,11 @@ export async function sendConnectionRequest(page: Page, linkedinUrl: string): Pr
     await menus.first().waitFor({state:'visible',timeout:5000});
     if(await menus.count()!==1)throw new Error("Multiple open menus; review the profile manually before retrying.");
     if(await menus.getByText(linkedinLabel("pending")).filter({visible:true}).count())throw new PendingInviteError("Invitation already pending");
-    const connect = menus.getByRole('menuitem', { name: linkedinLabel("connect") })
+    const connect = menus.locator('a[href*="custom-invite"]')
+      .or(menus.getByRole('menuitem', { name: linkedinLabel("invite") }))
+      .or(menus.getByRole('option', { name: linkedinLabel("invite") }))
+      .or(menus.getByRole('button', { name: linkedinLabel("invite") }))
+      .or(menus.getByRole('menuitem', { name: linkedinLabel("connect") }))
       .or(menus.getByRole('option', { name: linkedinLabel("connect") }))
       .or(menus.getByRole('button', { name: linkedinLabel("connect") }))
       .filter({ visible: true });

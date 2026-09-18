@@ -3,8 +3,10 @@
 ## Shared profile and invitation labels
 
 [`lib/linkedin/labels.ts`](../lib/linkedin/labels.ts) is the registry for
-English/French connection degrees, Connect/Invite, More, Pending, send-without-note
-actions, and invitation-sent confirmations. Both `connect.ts` and `visit.ts` use
+English/French and the 17 additional locales listed in
+[the observed-label fixtures](linkedin-european-labels.json): connection degrees,
+Connect/Invite, More, Pending, and send-without-note actions. Invitation-sent
+confirmations are covered only for English/French. Both `connect.ts` and `visit.ts` use
 its matchers. It translates neither Linki's UI nor outbound messages.
 
 Match supported labels together rather than selecting a dictionary from the
@@ -19,16 +21,38 @@ To add a language:
 
 1. Capture its actual LinkedIn labels and accessible names. Do not assume a
    dictionary translation matches LinkedIn's wording.
-2. Add a complete entry to `LINKEDIN_LABELS`. Preserve exact action names and
+2. Add an observed entry to `LINKEDIN_LABELS`; leave unverified success toasts
+   absent. Preserve exact action names and
    intentionally limited status prefixes; escape regex punctuation.
 3. Add offline fixtures for that language's profile badges, direct and overflow
    actions, pending/withdrawal names, send dialog, and post-send confirmation.
    Include ambiguity and unsupported-label cases.
-4. Run both suites from [CONNECTION-HANDLING.md](CONNECTION-HANDLING.md).
+4. Run all suites from [CONNECTION-HANDLING.md](CONNECTION-HANDLING.md).
    Synthetic fixtures establish matcher behavior, not live-account support.
 
-Only English/French profile and invitation handling is covered here. The rest
-of the automation still has the gaps below; this is not global French support.
+These labels cover profile and invitation handling. The rest of the automation
+still has the gaps below; this is not full application language support.
+
+### Live label evidence, 2026-09-18
+
+The account-language dropdown, first-degree profile, suggested-profile actions
+and degree badges, an existing pending invitation, and an unsent custom-invite
+dialog were inspected in Chrome. The fixtures preserve literal visible labels
+and accessible-name templates, replacing recipients with `{recipient}`. No
+invitation or message was sent or withdrawn; the account language was restored
+to French. Menu inspection also verified a `menuitem` with a recipient-specific
+Invite name, visible Connect text, and a custom-invite URL.
+
+The added locales are Czech, Danish, German, Greek, Spanish, Finnish, Hungarian,
+Italian, Dutch, Norwegian, Polish, Brazilian Portuguese, Romanian, Russian,
+Swedish, Turkish, and Ukrainian. LinkedIn offered `pt_BR`, not `pt_PT`. Only the
+Danish third-degree badge was captured beyond first degree; no second-degree
+translation was invented. Romanian pending wording is the observed “Între timp,”
+even though it is an unusual translation. New locales confirm a send through
+the profile-scoped pending state; their unobserved success toasts are omitted.
+
+These are live label observations plus synthetic behavior tests, not live-send
+validation. Existing profile-card layout constraints still apply.
 
 ## Audit of the open-core checkout
 

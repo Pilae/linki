@@ -7,14 +7,16 @@ Chromium build (`npx playwright install chromium`) or set
 ```sh
 node tests/connect-navigation.cjs
 node tests/visit-profile.cjs
+node tests/european-languages.cjs
 ```
 
-Both suites replace navigation with synthetic HTML and abort network requests.
+All suites replace navigation with synthetic HTML and abort network requests.
 They never load account cookies or contact LinkedIn. Assertions cover profile
-scoping, English/French actions, pending invitation detection, send confirmation,
+scoping, observed European-language actions, pending invitation detection, send
+confirmation,
 unknown/conflicting degree badges, and profile-scoped messaging recipients.
 
-English/French labels are shared through `lib/linkedin/labels.ts`. See
+Supported labels are shared through `lib/linkedin/labels.ts`. See
 [LINKEDIN-I18N.md](LINKEDIN-I18N.md) for the language-extension procedure and
 the audit of remaining language assumptions throughout the automation.
 
@@ -26,6 +28,7 @@ The Run now, schedule/cap bypass, and progress UI changes are not included.
 
 Icon-only action controls are covered by fixtures on supported `/in/` profile
 cards. This does not establish end-to-end Sales Navigator support: `/sales/lead/`
-URLs and unrecognized profile cards remain unsupported. Fresh live-account
+URLs and unrecognized profile cards remain unsupported. Live label inspection is
+documented in LINKEDIN-I18N.md; live-send
 validation is not part of these tests. Ambiguous post-click outcomes require
 manual verification before retrying to avoid duplicate invitations.
