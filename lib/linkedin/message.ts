@@ -57,7 +57,7 @@ export async function sendMessage(
 
   // Connected, but no message link could be resolved live (unusual layout) —
   // last-resort fallback to name search.
-  await sendMessageViaTypeahead(page, fullName, text);
+  await sendMessageViaTypeahead(page, fullName, text, linkedinUrl);
   return resolved;
 }
 
@@ -75,7 +75,7 @@ async function openComposeByUrn(page: Page, messagingUrn: string): Promise<boole
   }
 }
 
-async function sendMessageViaTypeahead(page: Page, fullName: string, text: string): Promise<void> {
+async function sendMessageViaTypeahead(page: Page, fullName: string, text: string, linkedinUrl: string): Promise<void> {
   await page.goto("https://www.linkedin.com/messaging/thread/new/", {
     waitUntil: "domcontentloaded",
     timeout: 30000,
@@ -96,7 +96,12 @@ async function sendMessageViaTypeahead(page: Page, fullName: string, text: strin
   const firstResult = page.locator('div[class*="msg-connections-typeahead__search-result-row"]').first();
   await firstResult.waitFor({ timeout: 8000 });
   const resultText = (await firstResult.innerText().catch(() => "")).trim();
-  if (!resultNameMatches(resultText, fullName)) {
+  const resultProfile = await firstResult.locator('a[href*="/in/"]').first()
+    .getAttribute("href", { timeout: 500 }).catch(() => null);
+  const expectedProfile = new URL(linkedinUrl).pathname.replace(/\/$/, "");
+  const actualProfile = resultProfile
+    ? new URL(resultProfile, "https://www.linkedin.com").pathname.replace(/\/$/, "") : null;
+  if (actualProfile ? actualProfile !== expectedProfile : !resultNameMatches(resultText, fullName)) {
     throw new Error(
       `Typeahead search for "${fullName}" returned a non-matching result ("${resultText.replace(/\s+/g, " ")}") — refusing to send to avoid messaging the wrong person`
     );
@@ -107,12 +112,26 @@ async function sendMessageViaTypeahead(page: Page, fullName: string, text: strin
   await sendFromComposeBox(page, text);
 }
 
-function resultNameMatches(resultText: string, fullName: string): boolean {
-  const normalize = (s: string) =>
-    s.toLowerCase().normalize("NFKD").replace(/[̀-ͯ]/g, "").replace(/[^a-z\s]/g, " ").replace(/\s+/g, " ").trim();
+export function resultNameMatches(resultText: string, fullName: string): boolean {
+  const normalize = (value: string) => {
+    let folded = "";
+    let latinBase = false;
+    for (const char of value.normalize("NFKD").toLocaleLowerCase()) {
+      if (/\p{L}/u.test(char)) {
+        latinBase = /\p{Script=Latin}/u.test(char);
+        folded += char;
+      } else if (/\p{M}/u.test(char)) {
+        if (!latinBase) folded += char;
+      } else {
+        folded += " ";
+        latinBase = false;
+      }
+    }
+    return folded.replace(/\s+/gu, " ").trim();
+  };
   const target = normalize(fullName);
-  if (!target) return false;
-  return normalize(resultText).includes(target);
+  const result = normalize(resultText);
+  return !!target && (result === target || result.startsWith(`${target} `));
 }
 
 async function sendFromComposeBox(page: Page, text: string): Promise<void> {

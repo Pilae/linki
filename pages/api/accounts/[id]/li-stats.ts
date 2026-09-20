@@ -20,13 +20,22 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse)
     page = await getSessionPage(accountId);
     const stats = await scrapeLinkedInStats(page);
     await saveSessionState(accountId);
+    if (Object.values(stats).every(value => value === null)) {
+      return res.status(503).json({ error: "LinkedIn statistics could not be verified." });
+    }
     db.prepare(`
       UPDATE accounts SET
-        li_connections = ?, li_pending = ?, li_profile_views = ?,
+        li_connections = COALESCE(?, li_connections),
+        li_pending = COALESCE(?, li_pending),
+        li_profile_views = COALESCE(?, li_profile_views),
         li_stats_synced_at = datetime('now')
       WHERE id = ?
     `).run(stats.connections, stats.pending, stats.profile_views, accountId);
-    return res.json(stats);
+    const cached = db.prepare(
+      "SELECT li_connections, li_pending, li_profile_views FROM accounts WHERE id = ?"
+    ).get(accountId) as { li_connections: number | null; li_pending: number | null; li_profile_views: number | null };
+    return res.json({ connections: cached.li_connections, pending: cached.li_pending,
+      profile_views: cached.li_profile_views });
   } catch (err) {
     console.error("[li-stats]", err);
     return res.status(500).json({ error: err instanceof Error ? err.message : "Scrape failed" });

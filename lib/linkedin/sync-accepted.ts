@@ -1,6 +1,7 @@
 import type { Page } from "playwright";
 import { getDb } from "@/lib/db";
 import { getSessionPage, saveSessionState, markNeedsReauth } from "@/lib/linkedin/session";
+import { isVerifiedCompleteCount, readConnectionsCount } from "@/lib/linkedin/counts";
 
 /**
  * Accepted-connection sync via the authoritative Voyager connections API.
@@ -80,10 +81,7 @@ export async function syncAcceptedConnections(accountId: string): Promise<number
       console.warn(`[sync-accepted] Session looks logged out (${page.url()}) — skipping`);
       return 0;
     }
-    const declaredTotal = await page.evaluate(() => {
-      const m = document.body.innerText.match(/([\d.,]+)\s+connections?/i);
-      return m ? parseInt(m[1].replace(/[.,]/g, ""), 10) : null;
-    });
+    const declaredTotal = await readConnectionsCount(page);
 
     const findByVanity = db.prepare(
       `SELECT id, full_name, connected_at, degree FROM targets
@@ -132,10 +130,9 @@ export async function syncAcceptedConnections(accountId: string): Promise<number
       await page.waitForTimeout(900 + Math.random() * 700); // gentle, API-only
     }
 
-    // Completeness checksum: a full pass is trustworthy only if what we pulled
-    // matches LinkedIn's own declared total (±5 slack for live churn).
-    const verifiedComplete =
-      isFullPass && declaredTotal !== null && Math.abs(uniquePulled - declaredTotal) <= 5;
+    // Completeness checksum: live churn can make the numbers differ, but that
+    // cannot justify unmarking connections absent from a possibly partial pull.
+    const verifiedComplete = isVerifiedCompleteCount(isFullPass, uniquePulled, declaredTotal);
 
     // Correction: ONLY on a verified-complete full pass, un-mark phantom
     // degree=1 contacts (present nowhere in the authoritative list). Never on an

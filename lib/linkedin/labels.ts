@@ -20,13 +20,15 @@ function escapeLabel(value: string): string {
 function observedProfileLabels(first: string, other: string[], connect: string,
   invite: string, more: string, pending: string, send: string): ProfileLabels {
   const exact = (value: string) => new RegExp(`^${escapeLabel(value)}$`, "i");
+  // LinkedIn inserts directional marks around badges in RTL interfaces.
+  const badgePrefix = "^[\\u200e\\u200f]*[·•]?[\\u200e\\u200f]*\\s*";
   return {
-    firstDegree: new RegExp(`^[·•]?\\s*${escapeLabel(first)}\\s*$`, "i"),
-    otherDegree: new RegExp(`^[·•]?\\s*(?:${other.map(escapeLabel).join("|")})\\s*\\+?\\s*$`, "i"),
+    firstDegree: new RegExp(`${badgePrefix}${escapeLabel(first)}\\s*$`, "i"),
+    otherDegree: new RegExp(`${badgePrefix}(?:${other.map(escapeLabel).join("|")})\\s*\\+?\\s*$`, "i"),
     connect: exact(connect),
     invite: new RegExp(`^${invite.split("{recipient}").map(escapeLabel).join(".+")}$`, "i"),
     more: exact(more),
-    pending: new RegExp(`^${escapeLabel(pending)}(?:$|[\\s,;.–])`, "i"),
+    pending: new RegExp(`^${escapeLabel(pending)}(?=$|[\\s,;.–،。！，、؛؟])`, "i"),
     sendWithoutNote: exact(send),
   };
 }
@@ -69,6 +71,23 @@ export const LINKEDIN_LABELS = {
   sv_SE: observedProfileLabels("1:a", ["2:a", "3:e"], "Skapa kontakt", "Skicka en kontaktinbjudan till {recipient}", "Mer", "Obesvarad", "Skicka utan meddelande"),
   tr_TR: observedProfileLabels("1.", ["2.", "3. derece"], "Bağlantı kur", "{recipient} adlı kullanıcıyı bağlantı kurmak için davet et", "Daha fazla", "Beklemede", "Not olmadan gönderin"),
   uk_UA: observedProfileLabels("1-й", ["2-й", "3-й"], "Встановити контакт", "Надіслати запрошення учасникові {recipient}, щоб встановити контакт", "Більше", "Розглядається", "Надіслати без примітки"),
+  ar_AE: observedProfileLabels("من الدرجة الأولى", ["من الدرجة الثانية", "من الدرجة الثالثة"], "تواصل", "توجيه الدعوة لـ ‏{recipient}‏ للتواصل", "المزيد", "قيد الانتظار", "إرسال دون ملاحظة"),
+  bn_IN: observedProfileLabels("1ম", ["2য়", "3য়"], "সংযোগ করুন", "যোগাযোগ করতে {recipient}-কে আমন্ত্রণ জানান", "আরও", "স্থগিত আছে", "কোনও নোট ছাড়াই পাঠান"),
+  fa_IR: observedProfileLabels("اول", ["دوم", "سوم"], "مرتبط کردن", "دعوت از ‏{recipient}‏ برای ارتباط گرفتن", "بیشتر", "معوق", "ارسال بدون یادداشت"),
+  hi_IN: observedProfileLabels("लेवल 1", ["लेवल 2", "लेवल 3"], "कनेक्ट करें", "{recipient} को कनेक्ट करने के लिए आमंत्रित करें", "अधिक", "लंबित है", "बिना नोट के भेजें"),
+  in_ID: observedProfileLabels("Ke-1", ["2nd", "Ke-2", "3rd", "ke-3"], "Connect", "Invite {recipient} to connect", "Lainnya", "Belum direspons", "Kirim tanpa catatan"),
+  iw_IL: observedProfileLabels("הראשון", ["השני", "שלישית"], "להתחבר", "שליחת הזמנה להתחבר אל ‏{recipient}‏", "עוד", "בהמתנה", "שליחה בלי הערה"),
+  ja_JP: observedProfileLabels("1次", ["2次", "3次"], "つながる", "{recipient}さんにつながりを申請する", "その他", "承認待ち", "挨拶なしで送信"),
+  ko_KR: observedProfileLabels("1촌", ["2촌", "3촌"], "1촌 맺기", "{recipient}님에게 1촌 신청", "더 보기", "대기중", "메모 없이 보내기"),
+  mr_IN: observedProfileLabels("1 ले", ["2 रे"], "कनेक्ट करा", "{recipient} यांना कनेक्ट करण्यासाठी आमंत्रित करा", "अधिक", "बाकी", "नोटशिवाय पाठवा"),
+  ms_MY: observedProfileLabels("Pertama", ["ke-2", "ke-3"], "Hubung", "Jemput {recipient} untuk berhubung", "Lagi", "Menunggu kelulusan", "Hantar tanpa mesej"),
+  pa_IN: observedProfileLabels("ਪਹਿਲੀ", ["ਦੂਜੀ", "ਤੀਜੀ"], "ਕਨੈਕਟ ਕਰੋ", "ਕਨੈਕਟ ਕਰਨ ਲਈ {recipient} ਨੂੰ ਸੱਦਾ ਦਿਓ", "ਹੋਰ", "ਬਾਕੀ ਹੈ", "ਬਿਨਾਂ ਨੋਟ ਦੇ ਭੇਜੋ"),
+  te_IN: observedProfileLabels("1వ", ["2వ", "3వ"], "కనెక్ట్ చేయి", "కనెక్ట్ కావడానికి {recipient}‌ని ఆహ్వానించు", "మరిన్ని", "పెండింగ్‌లో ఉంది", "గమనిక లేకుండా పంపు"),
+  th_TH: observedProfileLabels("ขั้นที่ 1", ["ขั้นที่ 2", "ขั้นที่ 3"], "ทำความรู้จัก", "เชิญ {recipient} ให้ทำความรู้จัก", "เพิ่มเติม", "รอดำเนินการ", "ส่งโดยไม่ต้องจดบันทึก"),
+  tl_PH: observedProfileLabels("1st", ["2nd", "3rd"], "Connect", "Invite {recipient} to connect", "Higit pa", "Nakabinbin", "Magpadala nang walang note"),
+  vi_VN: observedProfileLabels("1", ["2", "3"], "Kết nối", "Mời {recipient} để kết nối", "Khác", "Đang chờ", "Gửi mà không cần ghi chú"),
+  zh_CN: observedProfileLabels("1 度", ["2 度", "3 度"], "加为好友", "邀请{recipient}加为好友", "更多", "待处理", "发送时不添加备注"),
+  zh_TW: observedProfileLabels("1 度", ["2 度", "3 度"], "建立關係", "邀請{recipient}加為好友", "更多", "未回覆", "不附加備註即傳送"),
 } satisfies Record<string, ProfileLabels>;
 
 export type LinkedInLocale = keyof typeof LINKEDIN_LABELS;

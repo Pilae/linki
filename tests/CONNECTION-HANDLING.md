@@ -8,11 +8,14 @@ Chromium build (`npx playwright install chromium`) or set
 node tests/connect-navigation.cjs
 node tests/visit-profile.cjs
 node tests/european-languages.cjs
+node tests/global-languages.cjs
+node tests/localized-counts.cjs
+node tests/login-signals.cjs
 ```
 
 All suites replace navigation with synthetic HTML and abort network requests.
 They never load account cookies or contact LinkedIn. Assertions cover profile
-scoping, observed European-language actions, pending invitation detection, send
+scoping, observed LinkedIn-language actions, pending invitation detection, send
 confirmation,
 unknown/conflicting degree badges, and profile-scoped messaging recipients.
 

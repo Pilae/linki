@@ -1,0 +1,222 @@
+[
+  {
+    "locale": "ar_AE",
+    "firstDegree": "‏· من الدرجة الأولى",
+    "otherDegrees": [
+      "‏• من الدرجة الثانية",
+      "‏• من الدرجة الثالثة"
+    ],
+    "connect": "تواصل",
+    "invite": "توجيه الدعوة لـ ‏{recipient}‏ للتواصل",
+    "more": "المزيد",
+    "expandedPending": "قيد الانتظار، انقر لسحب الدعوة المرسلة إلى ‏{recipient}‏",
+    "sendWithoutNote": "إرسال دون ملاحظة"
+  },
+  {
+    "locale": "bn_IN",
+    "firstDegree": "· 1ম",
+    "otherDegrees": [
+      "· 2য়",
+      "· 3য়"
+    ],
+    "connect": "সংযোগ করুন",
+    "invite": "যোগাযোগ করতে {recipient}-কে আমন্ত্রণ জানান",
+    "more": "আরও",
+    "expandedPending": "স্থগিত আছে, {recipient}-কে পাঠানো আমন্ত্রণ প্রত্যাহার করতে ক্লিক করুন",
+    "sendWithoutNote": "কোনও নোট ছাড়াই পাঠান"
+  },
+  {
+    "locale": "fa_IR",
+    "firstDegree": "‏· اول",
+    "otherDegrees": [
+      "‏· دوم",
+      "‏· سوم"
+    ],
+    "connect": "مرتبط کردن",
+    "invite": "دعوت از ‏{recipient}‏ برای ارتباط گرفتن",
+    "more": "بیشتر",
+    "expandedPending": "معوق، برای پس گرفتن دعوت‌نامه ارسال شده به ‏{recipient}‏، کلیک کنید",
+    "sendWithoutNote": "ارسال بدون یادداشت"
+  },
+  {
+    "locale": "hi_IN",
+    "firstDegree": "· लेवल 1",
+    "otherDegrees": [
+      "· लेवल 2",
+      "· लेवल 3"
+    ],
+    "connect": "कनेक्ट करें",
+    "invite": "{recipient} को कनेक्ट करने के लिए आमंत्रित करें",
+    "more": "अधिक",
+    "expandedPending": "लंबित है, {recipient} को भेजा गया आमंत्रण वापस लेने के लिए क्लिक करें",
+    "sendWithoutNote": "बिना नोट के भेजें"
+  },
+  {
+    "locale": "in_ID",
+    "firstDegree": "· Ke-1",
+    "otherDegrees": [
+      "· Ke-2",
+      "· ke-3"
+    ],
+    "connect": "Connect",
+    "invite": "Invite {recipient} to connect",
+    "more": "Lainnya",
+    "expandedPending": "Belum direspons, klik untuk membatalkan undangan yang dikirim ke {recipient}",
+    "sendWithoutNote": "Kirim tanpa catatan"
+  },
+  {
+    "locale": "iw_IL",
+    "firstDegree": "‏· הראשון",
+    "otherDegrees": [
+      "‏· השני",
+      "‏· שלישית"
+    ],
+    "connect": "להתחבר",
+    "invite": "שליחת הזמנה להתחבר אל ‏{recipient}‏",
+    "more": "עוד",
+    "expandedPending": "בהמתנה, ניתן ללחוץ כדי לבטל את ההזמנה שנשלחה אל ‏{recipient}‏",
+    "sendWithoutNote": "שליחה בלי הערה"
+  },
+  {
+    "locale": "ja_JP",
+    "firstDegree": "· 1次",
+    "otherDegrees": [
+      "· 2次",
+      "· 3次"
+    ],
+    "connect": "つながる",
+    "invite": "{recipient}さんにつながりを申請する",
+    "more": "その他",
+    "expandedPending": "承認待ち。{recipient}さんへの招待を取り消すにはクリックします",
+    "sendWithoutNote": "挨拶なしで送信"
+  },
+  {
+    "locale": "ko_KR",
+    "firstDegree": "· 1촌",
+    "otherDegrees": [
+      "· 2촌",
+      "· 3촌"
+    ],
+    "connect": "1촌 맺기",
+    "invite": "{recipient}님에게 1촌 신청",
+    "more": "더 보기",
+    "expandedPending": "대기중, {recipient}님에게 보낸 1촌 신청을 취소하려면 클릭",
+    "sendWithoutNote": "메모 없이 보내기"
+  },
+  {
+    "locale": "mr_IN",
+    "firstDegree": "· 1 ले",
+    "otherDegrees": [
+      "· 2 रे"
+    ],
+    "connect": "कनेक्ट करा",
+    "invite": "{recipient} यांना कनेक्ट करण्यासाठी आमंत्रित करा",
+    "more": "अधिक",
+    "expandedPending": "बाकी, {recipient} यांना पाठवलेले आमंत्रण मागे घेण्यासाठी क्लिक करा",
+    "sendWithoutNote": "नोटशिवाय पाठवा"
+  },
+  {
+    "locale": "ms_MY",
+    "firstDegree": "· Pertama",
+    "otherDegrees": [
+      "· ke-2",
+      "· ke-3"
+    ],
+    "connect": "Hubung",
+    "invite": "Jemput {recipient} untuk berhubung",
+    "more": "Lagi",
+    "expandedPending": "Menunggu kelulusan, klik untuk menarik balik jemputan yang dihantar kepada {recipient}",
+    "sendWithoutNote": "Hantar tanpa mesej"
+  },
+  {
+    "locale": "pa_IN",
+    "firstDegree": "· ਪਹਿਲੀ",
+    "otherDegrees": [
+      "· ਦੂਜੀ",
+      "· ਤੀਜੀ"
+    ],
+    "connect": "ਕਨੈਕਟ ਕਰੋ",
+    "invite": "ਕਨੈਕਟ ਕਰਨ ਲਈ {recipient} ਨੂੰ ਸੱਦਾ ਦਿਓ",
+    "more": "ਹੋਰ",
+    "expandedPending": "ਬਾਕੀ ਹੈ, {recipient} ਨੂੰ ਭੇਜਿਆ ਗਿਆ ਸੱਦਾ ਵਾਪਸ ਲੈਣ ਲਈ ਕਲਿੱਕ ਕਰੋ",
+    "sendWithoutNote": "ਬਿਨਾਂ ਨੋਟ ਦੇ ਭੇਜੋ"
+  },
+  {
+    "locale": "te_IN",
+    "firstDegree": "· 1వ",
+    "otherDegrees": [
+      "· 2వ",
+      "· 3వ"
+    ],
+    "connect": "కనెక్ట్ చేయి",
+    "invite": "కనెక్ట్ కావడానికి {recipient}‌ని ఆహ్వానించు",
+    "more": "మరిన్ని",
+    "expandedPending": "పెండింగ్‌లో ఉంది, {recipient}‌కి పంపిన ఆహ్వానాన్ని విత్‌డ్రా చేయడం కోసం క్లిక్ చేయండి",
+    "sendWithoutNote": "గమనిక లేకుండా పంపు"
+  },
+  {
+    "locale": "th_TH",
+    "firstDegree": "· ขั้นที่ 1",
+    "otherDegrees": [
+      "· ขั้นที่ 2",
+      "· ขั้นที่ 3"
+    ],
+    "connect": "ทำความรู้จัก",
+    "invite": "เชิญ {recipient} ให้ทำความรู้จัก",
+    "more": "เพิ่มเติม",
+    "expandedPending": "รอดำเนินการ คลิกเพื่อถอนคำเชิญที่ส่งถึง {recipient}",
+    "sendWithoutNote": "ส่งโดยไม่ต้องจดบันทึก"
+  },
+  {
+    "locale": "tl_PH",
+    "firstDegree": "· 1st",
+    "otherDegrees": [
+      "· 2nd",
+      "· 3rd"
+    ],
+    "connect": "Connect",
+    "invite": "Invite {recipient} to connect",
+    "more": "Higit pa",
+    "expandedPending": "Nakabinbin, mag-click para bawiin ang imbitasyong ipinadala kay {recipient}",
+    "sendWithoutNote": "Magpadala nang walang note"
+  },
+  {
+    "locale": "vi_VN",
+    "firstDegree": "· 1",
+    "otherDegrees": [
+      "· 2",
+      "· 3"
+    ],
+    "connect": "Kết nối",
+    "invite": "Mời {recipient} để kết nối",
+    "more": "Khác",
+    "expandedPending": "Đang chờ, hãy nhấp vào để thu hồi lời mời gửi tới {recipient}",
+    "sendWithoutNote": "Gửi mà không cần ghi chú"
+  },
+  {
+    "locale": "zh_CN",
+    "firstDegree": "· 1 度",
+    "otherDegrees": [
+      "· 2 度",
+      "· 3 度"
+    ],
+    "connect": "加为好友",
+    "invite": "邀请{recipient}加为好友",
+    "more": "更多",
+    "expandedPending": "待处理，点击撤回发送给{recipient}的邀请",
+    "sendWithoutNote": "发送时不添加备注"
+  },
+  {
+    "locale": "zh_TW",
+    "firstDegree": "· 1 度",
+    "otherDegrees": [
+      "· 2 度",
+      "· 3 度"
+    ],
+    "connect": "建立關係",
+    "invite": "邀請{recipient}加為好友",
+    "more": "更多",
+    "expandedPending": "未回覆，按一下以撤回給{recipient}的邀請",
+    "sendWithoutNote": "不附加備註即傳送"
+  }
+]

@@ -3,11 +3,12 @@
 ## Shared profile and invitation labels
 
 [`lib/linkedin/labels.ts`](../lib/linkedin/labels.ts) is the registry for
-English/French and the 17 additional locales listed in
-[the observed-label fixtures](linkedin-european-labels.json): connection degrees,
-Connect/Invite, More, Pending, and send-without-note actions. Invitation-sent
-confirmations are covered only for English/French. Both `connect.ts` and `visit.ts` use
-its matchers. It translates neither Linki's UI nor outbound messages.
+all 36 LinkedIn interface languages: connection degrees, Connect/Invite, More,
+Pending, and send-without-note actions. Evidence is in the
+[European](linkedin-european-labels.json) and
+[other-language](linkedin-global-labels.json) fixtures. Invitation-sent toasts
+remain verified only for English/French; other languages require the
+profile-scoped pending state. Both `connect.ts` and `visit.ts` use these matchers. It translates neither Linki's UI nor outbound messages.
 
 Match supported labels together rather than selecting a dictionary from the
 browser locale: the account's LinkedIn UI language can differ from that preference.
@@ -24,9 +25,10 @@ To add a language:
 2. Add an observed entry to `LINKEDIN_LABELS`; leave unverified success toasts
    absent. Preserve exact action names and
    intentionally limited status prefixes; escape regex punctuation.
-3. Add offline fixtures for that language's profile badges, direct and overflow
-   actions, pending/withdrawal names, send dialog, and post-send confirmation.
-   Include ambiguity and unsupported-label cases.
+3. Add offline fixtures for that language's observed profile badges, direct
+   and overflow actions, pending/withdrawal names, and send dialog. Test
+   post-send confirmation by the pending state unless a success toast was
+   separately observed. Include ambiguity and unsupported-label cases.
 4. Run all suites from [CONNECTION-HANDLING.md](CONNECTION-HANDLING.md).
    Synthetic fixtures establish matcher behavior, not live-account support.
 
@@ -43,9 +45,9 @@ invitation or message was sent or withdrawn; the account language was restored
 to French. Menu inspection also verified a `menuitem` with a recipient-specific
 Invite name, visible Connect text, and a custom-invite URL.
 
-The added locales are Czech, Danish, German, Greek, Spanish, Finnish, Hungarian,
-Italian, Dutch, Norwegian, Polish, Brazilian Portuguese, Romanian, Russian,
-Swedish, Turkish, and Ukrainian. LinkedIn offered `pt_BR`, not `pt_PT`. Only the
+The European locales are Czech, Danish, German, Greek, Spanish, Finnish,
+Hungarian, Italian, Dutch, Norwegian, Polish, Brazilian Portuguese, Romanian,
+Russian, Swedish, Turkish, and Ukrainian. LinkedIn offered `pt_BR`, not `pt_PT`. Only the
 Danish third-degree badge was captured beyond first degree; no second-degree
 translation was invented. Romanian pending wording is the observed “Între timp,”
 even though it is an unusual translation. New locales confirm a send through
@@ -53,6 +55,27 @@ the profile-scoped pending state; their unobserved success toasts are omitted.
 
 These are live label observations plus synthetic behavior tests, not live-send
 validation. Existing profile-card layout constraints still apply.
+
+### Remaining LinkedIn languages and count pages, 2026-09-20
+
+The other 17 options in LinkedIn's selector were inspected on the same first-degree
+profile, a suggested-person connection action, an existing pending invitation,
+and an unsent invitation dialog: Arabic, Bengali, Persian, Hindi, Indonesian,
+Hebrew, Japanese, Korean, Marathi, Malay, Punjabi, Telugu, Thai, Tagalog,
+Vietnamese, simplified Chinese, and traditional Chinese. LinkedIn's option
+values include legacy `in_ID` and `iw_IL`; the registry uses those exact values.
+Some pages mix English and the selected language. No invitation or message was
+sent. The account language was restored to French.
+
+The connections header, sent-invitations `CONNECTION` tab, and profile-views
+number were inspected in French; Arabic and Hindi count pages were also checked.
+The count readers use observed component/URL structure and a strict integer
+parser, returning `null` when missing or ambiguous. They do not claim that
+LinkedIn never changes these layouts. A full accepted-connections pass may
+unmark prior connections only when the pulled count matches a verified positive
+header total. No live login error or security challenge was triggered to obtain
+translated error messages; login handling now uses structural signals and
+returns an unknown challenge rather than guessing or clicking a generic button.
 
 ## Audit of the open-core checkout
 
@@ -64,14 +87,13 @@ anchors that survive line-number changes.
 | --- | --- | --- |
 | `connect.ts`: `sendConnectionRequest`, `pendingInvitation` | Degrees and action/status names were embedded English/French regexes and English attribute selectors. | Migrated to the registry in this PR; keep fixture coverage for each added language. |
 | `visit.ts`: `visitProfile` | Localized degree badges determine connection state. Messaging recipients themselves use URNs. | Migrated to the same registry; missing/conflicting badges remain errors. |
-| `session.ts`: `classifyLoginState` | Wrong-password/account errors are detected with English text. Other languages fall through to a generic login failure. | Add observed credential-error labels and login-state fixtures; retain URL, input, and checkpoint evidence. |
-| `session.ts`: `awaitLoginApproval` | Remember-browser fallback searches for English `Yes` or German `Ja`, plus any submit button. French and other labels are absent. | Identify and scope the actual interstitial before adding observed confirmation labels; test that unrelated submit buttons are untouched. |
-| `session.ts`: `classifyLoginState` CAPTCHA branch | `iframe[title*='captcha']` is a text-dependent fallback. Arkose URL and `#captcha-internal` are structural alternatives. | Prefer provider/element identity; fixture-test localized iframe titles before claiming coverage. |
-| `session.ts`: `contextOptions`, `loginAccount` | Runtime/headless login and visible login pin `locale: 'en-US'`. This does not establish the account's UI language. | Keep fingerprint settings consistent. Do not change browser locale just to select labels; an account-locale setting would need a separate session migration. |
-| `li-stats.ts`: `scrapeLinkedInStats` | English `connection`, `People (N)`, and `Profile viewers` determine displayed counts; missing labels silently become zero. | Add observed statistic labels or structured totals, and represent unreadable values as unknown rather than real zero. Test all three pages. |
-| `li-stats.ts`: `parseNum`, pending-count regex | ASCII digits and digit stripping assume integer Western numerals; compact values such as `1.2K` are not valid input. | Define supported localized integer/compact formats and test them alongside grouping spaces, including nonbreaking spaces. |
-| `sync-accepted.ts`: `syncAcceptedConnections` / `declaredTotal` | English `connections?` and `[\d.,]+` supply the completeness checksum. Localized labels or space-grouped numbers can prevent verification or produce a wrong count. | Share observed count labels and a validated number parser with stats. Preserve add-only behavior when the checksum is unknown; never enable cleanup using an unverified total. |
-| `message.ts`: `resultNameMatches` | Name normalization strips everything outside `a-z`; non-Latin names become empty or lose meaningful distinctions. This is Unicode identity matching, not button translation. | Design and fixture-test conservative Unicode recipient verification, preferably using a profile ID. Do not loosen recipient matching with translations. |
+| `session.ts`, `settings.tsx`: login classification | CAPTCHA identity and invalid login fields use structural signals; unrecognized challenges remain unknown and the form offers a generic login check rather than requesting an unobserved code. | Challenge screens and translated errors were not live-tested, so a login could still require manual intervention. |
+| `session.ts`: `awaitLoginApproval` | Removed the broad Yes/Ja/submit fallback; unknown checkpoint controls are left untouched. | Reintroduce a click only after observing and testing a specific interstitial across languages. |
+| `session.ts`: browser context | Login and runtime still pin `locale: 'en-US'` for a consistent fingerprint. | LinkedIn account language is independent of that browser preference. |
+| `li-stats.ts`, `counts.ts` | Counts use a structural header, sent-tab URL, and unique numeric analytics paragraph; Unicode digits and grouping are validated. | Unknown metrics stay null and do not overwrite cached values. Recheck if LinkedIn changes the layout. |
+| `sync-accepted.ts` | The full-pass checksum reads the same structural connections header. | Never clean up accepted status without a verified positive total and complete API pull. |
+| `message.ts`: recipient fallback | Prefer an exact profile URL in a typeahead result; otherwise compare Unicode-normalized names at a full-name boundary. | URL-less same-name results remain a residual ambiguity; unrecognized names fail closed. |
+
 
 `message.ts`'s compose input, recipient search field, and Send button use class
 selectors rather than translated UI labels. Its live connection check inherits
@@ -92,3 +114,5 @@ Linki's own pages, notifications, API errors, and `lib/tour.ts` contain English
 copy and lack a dedicated UI translation layer. Product UI translation is a
 separate scope from recognizing LinkedIn's interface; it should not reuse this
 automation registry.
+
+[LinkedIn’s supported-language list](https://www.linkedin.com/help/linkedin/answer/a515744/langues-prises-en-charge?lang=fr) is the language inventory; profile observations came from the signed-in UI.
