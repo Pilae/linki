@@ -18,8 +18,11 @@ function escapeLabel(value: string): string {
 /** Exact observed action labels; the recipient is the only variable part.
  * Success toasts are deliberately absent until observed without guessing. */
 function observedProfileLabels(first: string, other: string[], connect: string,
-  invite: string, more: string, pending: string, send: string): ProfileLabels {
-  const exact = (value: string) => new RegExp(`^${escapeLabel(value)}$`, "i");
+  invite: string, more: string | string[], pending: string, send: string | string[],
+  invitationSent?: string): ProfileLabels {
+  const alternatives = (values: string | string[]) =>
+    (Array.isArray(values) ? values : [values]).map(escapeLabel).join("|");
+  const exact = (values: string | string[]) => new RegExp(`^(?:${alternatives(values)})$`, "i");
   // LinkedIn inserts directional marks around badges in RTL interfaces.
   const badgePrefix = "^[\\u200e\\u200f]*[·•]?[\\u200e\\u200f]*\\s*";
   return {
@@ -30,30 +33,17 @@ function observedProfileLabels(first: string, other: string[], connect: string,
     more: exact(more),
     pending: new RegExp(`^${escapeLabel(pending)}(?=$|[\\s,;.–،。！，、؛؟])`, "i"),
     sendWithoutNote: exact(send),
+    ...(invitationSent ? { invitationSent: exact(invitationSent) } : {}),
   };
 }
 
 export const LINKEDIN_LABELS = {
-  en: {
-    firstDegree: /^[·•]?\s*1st\s*$/i,
-    otherDegree: /^[·•]?\s*(?:2nd|3rd)\s*\+?\s*$/i,
-    connect: /^Connect$/i,
-    invite: /Invite.*to connect/i,
-    more: /^(?:More|More actions|Open actions overflow menu)$/i,
-    pending: /^Pending(?:$|[\s,])/i,
-    sendWithoutNote: /^(?:Send now|Send without(?:$|\s)|Send invitation(?!.*note))/i,
-    invitationSent: /^Invitation sent$/i,
-  },
-  fr: {
-    firstDegree: /^[·•]?\s*1er\s*$/i,
-    otherDegree: /^[·•]?\s*(?:2e|3e)\s*\+?\s*$/i,
-    connect: /^Se connecter$/i,
-    invite: /^Inviter .+ à rejoindre votre réseau$/i,
-    more: /^(?:Plus|Plus d’actions|Plus d'actions)$/i,
-    pending: /^En attente(?:$|[\s,])/i,
-    sendWithoutNote: /^(?:Envoyer sans note|Envoyer sans ajouter de note)$/i,
-    invitationSent: /^Invitation envoyée$/i,
-  },
+  en: observedProfileLabels("1st", ["2nd", "3rd"], "Connect", "Invite {recipient} to connect",
+    ["More", "More actions", "Open actions overflow menu"], "Pending",
+    ["Send now", "Send without a note", "Send invitation"], "Invitation sent"),
+  fr: observedProfileLabels("1er", ["2e", "3e"], "Se connecter", "Inviter {recipient} à rejoindre votre réseau",
+    ["Plus", "Plus d’actions", "Plus d'actions"], "En attente",
+    ["Envoyer sans note", "Envoyer sans ajouter de note"], "Invitation envoyée"),
   de_DE: observedProfileLabels("1.", ["2.", "3."], "Vernetzen", "{recipient} als Kontakt einladen", "Mehr", "Ausstehend", "Ohne Notiz senden"),
   es_ES: observedProfileLabels("1er", ["2º", "3er"], "Conectar", "Invita a {recipient} a conectar", "Más", "Pendiente", "Enviar sin nota"),
   it_IT: observedProfileLabels("1°", ["2°", "3°"], "Collegati", "Invita {recipient} a collegarsi", "Altro", "In sospeso", "Invia senza nota"),
