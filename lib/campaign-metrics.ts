@@ -67,7 +67,7 @@ export function campaignMetrics(db: Database.Database, workflowId: string, days 
     }
     for (const id of liRecipients) {
         const reply = stamp(byId.get(id)?.last_replied_at), sent = first(id, ['message', 'inmail']);
-        if (reply && sent && reply >= sent && enrollments.filter(e => e.target_id === id).length === 1)
+        if (events.some(e => e.target_id === id && e.kind === 'linkedin_reply') || (reply && sent && reply >= sent && enrollments.filter(e => e.target_id === id).length === 1))
             liReplies++;
     }
     for (const id of emails) {
