@@ -1,5 +1,6 @@
 import type { NextApiRequest, NextApiResponse } from "next";
 import { getDb } from "@/lib/db";
+import { campaignMetrics } from "@/lib/campaign-metrics";
 
 export default function handler(req: NextApiRequest, res: NextApiResponse) {
   if (req.method !== "GET") {
@@ -58,11 +59,9 @@ export default function handler(req: NextApiRequest, res: NextApiResponse) {
       emails_sent: number;
     };
 
-    const connections_sent = counts.connections_sent ?? 0;
-    const connections_accepted = counts.connections_accepted ?? 0;
-    const acceptance_rate = connections_sent > 0
-      ? Math.round((connections_accepted / connections_sent) * 100)
-      : 0;
+    const {funnel}=campaignMetrics(db,workflowId);
+    const connections_sent=funnel.connections_sent,connections_accepted=funnel.accepted;
+    const acceptance_rate=connections_sent && !funnel.acceptance_unknown ? Math.round(connections_accepted/connections_sent*100):null;
 
     const activeRun = db.prepare(
       `SELECT r.id, r.status, r.list_id, l.name as list_name, a.name as account_name
@@ -74,16 +73,16 @@ export default function handler(req: NextApiRequest, res: NextApiResponse) {
     ).get(workflowId) as { id: string; status: string; list_id: string; list_name: string; account_name: string } | undefined;
 
     return res.json({
-      total_prospects: counts.total_prospects ?? 0,
+      total_prospects: funnel.total,
       active_prospects: counts.active_prospects ?? 0,
-      completed_prospects: counts.completed_prospects ?? 0,
+      completed_prospects: funnel.completed,
       failed_prospects: counts.failed_prospects ?? 0,
       connections_sent,
       connections_accepted,
       acceptance_rate,
-      messages_sent: counts.messages_sent ?? 0,
-      inmails_sent: counts.inmails_sent ?? 0,
-      emails_sent: counts.emails_sent ?? 0,
+      messages_sent: funnel.messages_sent,
+      inmails_sent: funnel.inmails_sent,
+      emails_sent: funnel.emails_sent,
       active_run: activeRun ?? null,
     });
   } catch (err) {

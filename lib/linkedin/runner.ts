@@ -1,3 +1,4 @@
+import { recordCampaignOutcome } from "@/lib/campaign-metrics";
 import { getDb } from "@/lib/db";
 import { randomUUID } from "crypto";
 import { getSessionPage, saveSessionState, getSessionContext } from "@/lib/linkedin/session";
@@ -548,6 +549,7 @@ async function executeStep(
       await saveSessionState(accountId);
       db.prepare("UPDATE targets SET connection_requested_at = ? WHERE id = ?").run(nowIso(), target.id);
       trWait(db, tr, CONNECTION_RECHECK_HOURS);
+      recordCampaignOutcome(db, runId, target.id, "invitation");
       log(db, runId, target.id, "info", `Connection request sent to ${name} — will recheck in ${CONNECTION_RECHECK_HOURS}h`);
 
     } else if (step.step_type === "message") {
@@ -655,6 +657,7 @@ async function executeStep(
       db.prepare("UPDATE targets SET message_sent_at = ? WHERE id = ?").run(nowIso(), target.id);
       trRecordContext(db, tr, { linkedinMessage: messageText });
       trAdvance(db, tr, steps);
+      recordCampaignOutcome(db, runId, target.id, "message");
       log(db, runId, target.id, "info", `Message sent to ${name}`);
 
     } else if (step.step_type === "sales_inmail") {
@@ -758,6 +761,7 @@ async function executeStep(
       db.prepare("UPDATE targets SET inmail_sent_at = ?, message_sent_at = COALESCE(message_sent_at, ?) WHERE id = ?").run(nowIso(), nowIso(), target.id);
       trRecordContext(db, tr, { linkedinMessage: inmailBody });
       trAdvance(db, tr, steps);
+      recordCampaignOutcome(db, runId, target.id, "inmail");
       log(db, runId, target.id, "info", `InMail sent to ${name}`);
 
     } else if (step.step_type === "email") {
@@ -898,6 +902,7 @@ async function executeStep(
       await sendEmail({ ...emailAccount, password: decryptSecret(emailAccount.password)! }, freshTarget.email, emailSubject, finalEmailBody);
       trRecordContext(db, tr, { emailSubject, emailBody });
       trAdvance(db, tr, steps);
+      recordCampaignOutcome(db, runId, target.id, "email");
       log(db, runId, target.id, "info", `Email sent to ${name}`);
     }
 

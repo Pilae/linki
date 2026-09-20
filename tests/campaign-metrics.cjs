@@ -1,0 +1,46 @@
+const fs = require('fs'), ts = require('typescript'), Module = require('module'), assert = require('node:assert/strict'), DB = require('better-sqlite3');
+const m = new Module('/tmp/metrics.cjs');
+m._compile(ts.transpileModule(fs.readFileSync(require('path').join(__dirname, '../lib/campaign-metrics.ts'), 'utf8'), { compilerOptions: { module: ts.ModuleKind.CommonJS, target: ts.ScriptTarget.ES2022 } }).outputText, '/tmp/metrics.cjs');
+const { campaignMetrics } = m.exports;
+const db = new DB(':memory:');
+db.exec(`CREATE TABLE runs(id TEXT,workflow_id TEXT);CREATE TABLE run_profiles(id TEXT,target_id TEXT,run_id TEXT,created_at TEXT);CREATE TABLE run_profile_tracks(run_profile_id TEXT,state TEXT);CREATE TABLE targets(id TEXT,degree INTEGER,connected_at TEXT,connection_requested_at TEXT,message_sent_at TEXT,inmail_sent_at TEXT,last_replied_at TEXT,email_replied_at TEXT);CREATE TABLE logs(run_id TEXT,target_id TEXT,message TEXT,created_at TEXT);INSERT INTO runs VALUES('r','w'),('r2','other');INSERT INTO run_profiles VALUES('p','q','r','2026-09-01'),('p2','both','r','2026-09-01'),('p3','both','r2','2026-09-01');INSERT INTO run_profile_tracks VALUES('p','completed'),('p2','completed'),('p2','failed');INSERT INTO targets VALUES('q',1,'2022-07-19','2026-09-18','2026-09-18',NULL,'2026-09-19',NULL),('both',1,'2026-09-19','2026-09-18',NULL,NULL,NULL,NULL);INSERT INTO logs VALUES('r','q','Message sent to Q','2026-09-18'),('r','q','InMail sent to Q','2026-09-18');`);
+let f = campaignMetrics(db, 'w').funnel;
+assert.equal(f.connections_sent, 1);
+assert.equal(f.connected, 2);
+assert.equal(f.accepted, 0);
+assert.equal(f.acceptance_unknown, 1);
+assert.equal(f.messages_sent, 1);
+assert.equal(f.li_recipients, 1);
+assert.equal(f.li_replies, 1);
+assert.equal(f.completed, 1);
+assert.equal(campaignMetrics(db, 'other').funnel.connections_sent, 0);
+assert.deepEqual(campaignMetrics(db, 'w').funnel, f);
+db.prepare("UPDATE targets SET connected_at='2026-09-19' WHERE id='q'").run();
+f = campaignMetrics(db, 'w').funnel;
+assert.equal(f.accepted, 1);
+assert.equal(f.acceptance_unknown, 0);
+db.prepare("UPDATE targets SET last_replied_at='2020-01-01' WHERE id='q'").run();
+assert.equal(campaignMetrics(db, 'w').funnel.li_replies, 0);
+// Current connection without a date cannot establish campaign acceptance.
+db.prepare("UPDATE targets SET connected_at=NULL WHERE id='q'").run();
+assert.equal(campaignMetrics(db, 'w').funnel.acceptance_unknown, 1);
+assert.equal(campaignMetrics(db, 'w').funnel.accepted, 0);
+// Daily activity still includes visits, and typed runner evidence does not duplicate logs.
+const now = new Date().toISOString();
+db.prepare('INSERT INTO logs VALUES(?,?,?,?)').run('r', 'q', 'Visited Synthetic', now);
+m.exports.recordCampaignOutcome(db, 'r', 'q', 'message');
+db.prepare('INSERT INTO logs VALUES(?,?,?,?)').run('r', 'q', 'Message sent to Synthetic', now);
+const metrics = campaignMetrics(db, 'w', 1);
+assert.equal(metrics.activity.length, 1);
+assert.equal(metrics.activity[0].visits, 1);
+assert.equal(metrics.activity[0].messages, 1);
+assert.deepEqual(campaignMetrics(db, 'w', 1), metrics);
+// InMail mirrors message_sent_at in the legacy target schema; do not invent a regular message.
+db.exec("INSERT INTO runs VALUES('ri','inmail-only'); INSERT INTO run_profiles VALUES('pi','i','ri','2026-09-01'); INSERT INTO targets VALUES('i',1,NULL,NULL,'2026-09-18','2026-09-18',NULL,NULL)");
+const inmail = campaignMetrics(db, 'inmail-only').funnel;
+assert.equal(inmail.messages_sent, 0);
+assert.equal(inmail.inmails_sent, 1);
+assert.equal(inmail.li_recipients, 1);
+assert.equal(campaignMetrics(db, 'empty').funnel.total, 0);
+console.log(JSON.stringify({ passed: 23, synthetic: true }));
+db.close();

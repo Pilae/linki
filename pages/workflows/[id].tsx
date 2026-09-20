@@ -77,7 +77,7 @@ interface Stats {
   failed_prospects: number;
   connections_sent: number;
   connections_accepted: number;
-  acceptance_rate: number;
+  acceptance_rate: number | null;
   messages_sent: number;
   inmails_sent: number;
   emails_sent: number;
@@ -2368,7 +2368,7 @@ function Wizard({
 
 interface AnalyticsData {
   funnel: {
-    total: number; connections_sent: number; connected: number;
+    total: number; connections_sent: number; connected: number; accepted:number; acceptance_unknown:number; li_recipients:number;
     messages_sent: number; inmails_sent: number; li_replies: number;
     emails_sent: number; email_replies: number; completed: number;
   };
@@ -2421,7 +2421,7 @@ function AnalyticsPanel({ workflowId, days: initialDays }: { workflowId: string;
   const labelEvery = days <= 7 ? 1 : days <= 14 ? 2 : days <= 30 ? 5 : 15;
 
   function FunnelBar({ label, value, color }: { label: string; value: number; color: string }) {
-    const pct = Math.max(2, (value / maxFunnel) * 100);
+    const pct = Math.min(100, (value / maxFunnel) * 100);
     const rate = funnel.total > 0 ? Math.round((value / funnel.total) * 100) : 0;
     return (
       <div className="flex items-center gap-3 py-2">
@@ -2439,7 +2439,7 @@ function AnalyticsPanel({ workflowId, days: initialDays }: { workflowId: string;
     <div className="space-y-5 pb-8">
       {/* Day picker */}
       <div className="flex items-center justify-between pl-11">
-        <p className="text-sm text-base-content/40">Campaign performance over time</p>
+        <p className="text-sm text-base-content/40">Campaign totals · date range applies to charts</p>
         <div className="flex items-center gap-0.5 bg-base-300/50 rounded-lg p-0.5">
           {DAY_OPTS.map(d => (
             <button
@@ -2456,13 +2456,13 @@ function AnalyticsPanel({ workflowId, days: initialDays }: { workflowId: string;
       {/* Rate cards row */}
       <div className="grid grid-cols-4 gap-2">
         {[
-          { label: "Acceptance rate", value: funnel.connections_sent > 0 ? Math.round((funnel.connected / funnel.connections_sent) * 100) : 0, color: "#32d583" },
-          { label: "LI reply rate",   value: (funnel.messages_sent + funnel.inmails_sent) > 0 ? Math.round((funnel.li_replies / (funnel.messages_sent + funnel.inmails_sent)) * 100) : 0, color: "#c084fc" },
-          { label: "Email reply rate",value: funnel.emails_sent > 0     ? Math.round((funnel.email_replies / funnel.emails_sent) * 100)   : 0, color: "#fb923c" },
-          { label: "Completion rate", value: funnel.total > 0           ? Math.round((funnel.completed / funnel.total) * 100)             : 0, color: "#5aa2ff" },
+          { label: "Acceptance rate", value: funnel.connections_sent > 0 && !funnel.acceptance_unknown ? Math.round((funnel.accepted / funnel.connections_sent) * 100) : null, color: "#32d583" },
+          { label: "Recorded LI reply rate",   value: funnel.li_recipients > 0 ? Math.round((funnel.li_replies / funnel.li_recipients) * 100) : null, color: "#c084fc" },
+          { label: "Email reply rate",value: funnel.emails_sent > 0     ? Math.round((funnel.email_replies / funnel.emails_sent) * 100)   : null, color: "#fb923c" },
+          { label: "Completion rate", value: funnel.total > 0           ? Math.round((funnel.completed / funnel.total) * 100)             : null, color: "#5aa2ff" },
         ].map(card => (
           <div key={card.label} className="bg-base-200 border border-base-300/50 rounded-xl p-3">
-            <div className="text-xl font-bold tabular-nums" style={{ color: card.color }}>{card.value}%</div>
+            <div className="text-xl font-bold tabular-nums" style={{ color: card.color }}>{card.value===null?"N/A":`${card.value}%`}</div>
             <div className="text-[10px] text-base-content/40 mt-1 leading-tight">{card.label}</div>
           </div>
         ))}
@@ -2608,12 +2608,14 @@ function AnalyticsPanel({ workflowId, days: initialDays }: { workflowId: string;
         <div className="space-y-3">
           <div className="bg-base-200 border border-base-300/50 rounded-xl p-4">
             <div className="mb-4">
-              <span className="text-xs font-medium text-base-content/30 uppercase tracking-widest">Funnel</span>
+              <span className="text-xs font-medium text-base-content/30 uppercase tracking-widest">Campaign totals</span>
             </div>
             <div className="space-y-0.5">
               <FunnelBar label="Prospects" value={funnel.total} color="#808080" />
               <FunnelBar label="Connections sent" value={funnel.connections_sent} color="#32d583" />
-              <FunnelBar label="Connected" value={funnel.connected} color="#32d583" />
+              <FunnelBar label="Currently connected" value={funnel.connected} color="#32d583" />
+              <FunnelBar label="Accepted after invite" value={funnel.accepted} color="#32d583" />
+              {funnel.acceptance_unknown>0&&<p className="text-xs text-base-content/50">{funnel.acceptance_unknown} connection(s) have historical dates; campaign acceptance attribution is unknown.</p>}
               <FunnelBar label="LI Messages" value={funnel.messages_sent} color="#f4b740" />
               <FunnelBar label="InMails sent" value={funnel.inmails_sent} color="#e879f9" />
               <FunnelBar label="LI Replies" value={funnel.li_replies} color="#c084fc" />
@@ -2935,7 +2937,7 @@ export default function WorkflowDetailPage({
                     <span className="font-semibold text-info">{displayStats.inmails_sent}</span> inmailed
                   </span>
                 )}
-                {displayStats.connections_sent > 0 && displayStats.acceptance_rate > 0 && (
+                {displayStats.connections_sent > 0 && displayStats.acceptance_rate !== null && displayStats.acceptance_rate > 0 && (
                   <span className="text-xs text-base-content/40">{displayStats.acceptance_rate}% accepted</span>
                 )}
               </div>
