@@ -7,8 +7,7 @@ Chromium build (`npx playwright install chromium`) or set
 ```sh
 node tests/connect-navigation.cjs
 node tests/visit-profile.cjs
-node tests/european-languages.cjs
-node tests/global-languages.cjs
+node tests/linkedin-languages.cjs
 node tests/localized-counts.cjs
 node tests/login-signals.cjs
 ```

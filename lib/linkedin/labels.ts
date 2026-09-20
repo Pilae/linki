@@ -92,10 +92,17 @@ export const LINKEDIN_LABELS = {
 
 export type LinkedInLocale = keyof typeof LINKEDIN_LABELS;
 
+const labelMatchers = new Map<keyof ProfileLabels, RegExp>();
+
 /** Match supported evidence regardless of browser locale: the account's UI
  * language can differ from the browser's en-US preference. Preserve each
  * label's anchors and prefix rules; never translate or fuzzy-match actions. */
 export function linkedinLabel(key: keyof ProfileLabels): RegExp {
-  return new RegExp((Object.values(LINKEDIN_LABELS) as ProfileLabels[])
-    .flatMap(labels => labels[key] ? [`(?:${labels[key]!.source})`] : []).join("|"), "i");
+  let matcher = labelMatchers.get(key);
+  if (!matcher) {
+    matcher = new RegExp((Object.values(LINKEDIN_LABELS) as ProfileLabels[])
+      .flatMap(labels => labels[key] ? [`(?:${labels[key]!.source})`] : []).join("|"), "i");
+    labelMatchers.set(key, matcher);
+  }
+  return matcher;
 }
