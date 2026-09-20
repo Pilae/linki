@@ -3,14 +3,21 @@ import { getDb } from "@/lib/db";
 import { randomUUID } from "crypto";
 
 export default function handler(req: NextApiRequest, res: NextApiResponse) {
+  if (req.method === "GET") return res.json({ expectedStatusGuard: true });
   if (req.method !== "POST") {
-    res.setHeader("Allow", ["POST"]);
+    res.setHeader("Allow", ["GET", "POST"]);
     return res.status(405).end();
   }
 
   const db = getDb();
   const runId = req.query.id as string;
-  const { target_ids } = req.body as { target_ids?: string[] };
+  const { target_ids, expected_status } = (req.body ?? {}) as {
+    target_ids?: string[];
+    expected_status?: string;
+  };
+  if (expected_status !== undefined && !["pending", "paused", "running"].includes(expected_status)) {
+    return res.status(400).json({ error: "Invalid expected status" });
+  }
 
   if (!Array.isArray(target_ids) || target_ids.length === 0) {
     return res.status(400).json({ error: "target_ids required" });
@@ -64,7 +71,7 @@ export default function handler(req: NextApiRequest, res: NextApiResponse) {
   let skipped_already_enrolled = 0;
   let skipped_active_elsewhere = 0;
   const eligible: string[] = [];
-  for (const tid of target_ids) {
+  for (const tid of new Set(target_ids)) {
     if (alreadyEnrolled.has(tid)) { skipped_already_enrolled++; continue; }
     if (activeElsewhere.has(tid)) { skipped_active_elsewhere++; continue; }
     eligible.push(tid);
@@ -103,21 +110,58 @@ export default function handler(req: NextApiRequest, res: NextApiResponse) {
   const insertTrack = db.prepare(
     "INSERT INTO run_profile_tracks (id, run_profile_id, track, state, current_step) VALUES (?, ?, ?, 'pending', 0)"
   );
+  const findDuplicate = db.prepare(
+    `SELECT 1 FROM run_profiles rp
+     JOIN runs r ON r.id = rp.run_id
+     WHERE r.workflow_id = ? AND rp.target_id = ? LIMIT 1`
+  );
+  const findActiveElsewhere = db.prepare(
+    `SELECT 1 FROM run_profiles rp
+     JOIN runs r ON r.id = rp.run_id
+     JOIN run_profile_tracks rt ON rt.run_profile_id = rp.id
+     WHERE rp.target_id = ? AND r.status IN ('running', 'paused')
+       AND rt.state NOT IN ('completed', 'failed', 'skipped') LIMIT 1`
+  );
+  const statusChanged = new Error("run_status_changed");
+  let inserted = 0;
   const insertMany = db.transaction((ids: string[]) => {
+    const current = db.prepare("SELECT status FROM runs WHERE id = ?").get(runId) as
+      { status: string } | undefined;
+    if (expected_status !== undefined && current?.status !== expected_status) {
+      throw statusChanged;
+    }
     for (const tid of ids) {
+      // Recheck under the write lock: another worker may have enrolled after the preview.
+      if (findDuplicate.get(run.workflow_id, tid)) {
+        skipped_already_enrolled++;
+        continue;
+      }
+      if (findActiveElsewhere.get(tid)) {
+        skipped_active_elsewhere++;
+        continue;
+      }
       const assignedEmailAccountId = emailAssignment.get(tid) ?? null;
       const rpId = randomUUID();
       insertProfile.run(rpId, runId, tid, assignedEmailAccountId);
+      inserted++;
       for (const track of workflowTracks) {
         if (track === "email" && !assignedEmailAccountId) continue;
         insertTrack.run(randomUUID(), rpId, track);
       }
     }
   });
-  insertMany(eligible);
+  try {
+    // Acquire the write lock before checking state and enrollment eligibility.
+    insertMany.immediate(eligible);
+  } catch (error) {
+    if (error === statusChanged) {
+      return res.status(409).json({ error: "run_status_changed" });
+    }
+    throw error;
+  }
 
   return res.json({
-    enrolled: eligible.length,
+    enrolled: inserted,
     skipped_already_enrolled,
     skipped_active_elsewhere,
   });
