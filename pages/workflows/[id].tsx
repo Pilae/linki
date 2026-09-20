@@ -1,3 +1,4 @@
+import WithdrawalSettings from "@/components/WithdrawalSettings";
 import Head from "next/head";
 import { useState, useEffect, useCallback } from "react";
 import { GetServerSideProps } from "next";
@@ -2881,6 +2882,7 @@ export default function WorkflowDetailPage({
       <meta name="robots" content="noindex, nofollow" />
     </Head>
     <div>
+      <WithdrawalSettings workflowId={initial.id} />
       {/* Header */}
       <div className="flex items-center gap-3 mb-3">
         <Link href="/workflows" className="w-8 h-8 rounded-lg flex items-center justify-center text-base-content/50 hover:bg-base-200 hover:text-base-content transition-colors shrink-0">
@@ -3274,6 +3276,7 @@ export default function WorkflowDetailPage({
                           {(() => {
                             const activeTrack = typeof selectedStep === "object" && selectedStep !== null ? selectedStep.track : null;
                             const st = activeTrack === "email" ? p.em_step_type : activeTrack === "linkedin" ? p.li_step_type : p.step_type;
+                            if (activeTrack === "linkedin" && p.error_message?.startsWith("Invitation ")) return p.error_message;
                             return st === "connect" && p.connection_requested_at
                               ? "Awaiting acceptance"
                               : st === "email"
@@ -3304,6 +3307,7 @@ export default function WorkflowDetailPage({
                               </button>
                             )}
                           </div>
+                          {p.error_message?.startsWith("Invitation ") && <p className="text-xs text-base-content/60 mt-1">LinkedIn: {p.error_message}</p>}
                         </td>
                         <td className="text-xs text-base-content/50">
                           {formatNextAction(p.next_step_at, p.state)}

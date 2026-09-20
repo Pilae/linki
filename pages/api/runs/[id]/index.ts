@@ -1,3 +1,4 @@
+import { reconcile } from "@/lib/withdrawals/store";
 import type { NextApiRequest, NextApiResponse } from "next";
 import { getDb } from "@/lib/db";
 
@@ -72,12 +73,20 @@ export default function handler(req: NextApiRequest, res: NextApiResponse) {
   if (req.method === "PATCH") {
     const { status } = req.body;
     if (!status) return res.status(400).json({ error: "status required" });
-    db.prepare("UPDATE runs SET status = ? WHERE id = ?").run(status, id);
+    if (!['pending','running','paused','completed','failed'].includes(status)) return res.status(400).json({ error: 'Invalid run status' });
+    db.transaction(() => {
+      db.prepare("UPDATE runs SET status = ? WHERE id = ?").run(status, id);
+      // Manual completion is the existing Stop button/API. Natural completion is
+      // written directly by the runner and deliberately does not add this marker.
+      if (status === 'completed' || status === 'failed') db.prepare('INSERT OR IGNORE INTO withdrawal_stopped_runs VALUES(?)').run(id);
+      reconcile(db);
+    }).immediate();
     return res.json({ ok: true });
   }
 
   if (req.method === "DELETE") {
     db.prepare("DELETE FROM runs WHERE id = ?").run(id);
+    reconcile(db);
     return res.json({ ok: true });
   }
 

@@ -1,3 +1,4 @@
+import { withLinkedinExecution } from "@/lib/withdrawals/lock";
 import type { Page } from "playwright";
 import { getDb } from "@/lib/db";
 import { getSessionPage, saveSessionState, markNeedsReauth } from "@/lib/linkedin/session";
@@ -25,6 +26,11 @@ interface ApiConnection {
 }
 
 export async function syncAcceptedConnections(accountId: string): Promise<number> {
+  const result = await withLinkedinExecution(getDb(), accountId, () => syncAcceptedUnlocked(accountId));
+  if (result === undefined) throw new Error("Account execution busy; retry acceptance verification later");
+  return result;
+}
+async function syncAcceptedUnlocked(accountId: string): Promise<number> {
   const db = getDb();
   const page = await getSessionPage(accountId);
   let stamped = 0;

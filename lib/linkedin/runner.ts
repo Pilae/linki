@@ -1,3 +1,7 @@
+import { recordInvitation, reconcile } from "@/lib/withdrawals/store";
+import { readSnapshot, newSentInvitation, LinkedinWithdrawalProvider } from "@/lib/withdrawals/linkedin";
+import { processWithdrawals } from "@/lib/withdrawals/worker";
+import { withLinkedinExecution } from "@/lib/withdrawals/lock";
 import { recordCampaignOutcome } from "@/lib/campaign-metrics";
 import { getDb } from "@/lib/db";
 import { randomUUID } from "crypto";
@@ -545,7 +549,21 @@ async function executeStep(
       log(db, runId, target.id, "info", `Sending connection request to ${name}`);
       const linkedinUrl = await getLinkedinUrl(db, target, accountId);
       const page = await getSessionPage(accountId);
-      try { await sendConnectionRequest(page, linkedinUrl); } finally { await page.close(); }
+      try {
+        // Unsupported identity evidence must not manufacture campaign ownership.
+        const before = await readSnapshot(page).catch(() => null);
+        const started = Date.now();
+        await sendConnectionRequest(page, linkedinUrl);
+        if (before) {
+          const after = await readSnapshot(page).catch(() => null);
+          const evidence = after && newSentInvitation(before, after, linkedinUrl, started, Date.now());
+          if (evidence) {
+            const run = db.prepare("SELECT workflow_id FROM runs WHERE id=?").get(runId) as { workflow_id: string };
+            recordInvitation(db, { ...evidence, profile_url: linkedinUrl, workflow_id: run.workflow_id,
+              run_id: runId, target_id: target.id, account_id: accountId });
+          } else log(db, runId, target.id, "warn", "Invitation identity not verified — automatic withdrawal unavailable for this invitation");
+        } else log(db, runId, target.id, "warn", "Invitation identity not verified — automatic withdrawal unavailable for this invitation");
+      } finally { await page.close(); }
       await saveSessionState(accountId);
       db.prepare("UPDATE targets SET connection_requested_at = ? WHERE id = ?").run(nowIso(), target.id);
       trWait(db, tr, CONNECTION_RECHECK_HOURS);
@@ -968,6 +986,25 @@ async function globalLoop(): Promise<void> {
 }
 
 async function tick(db: ReturnType<typeof getDb>): Promise<void> {
+  // Maintenance is independent of active outreach, including completed campaigns.
+  reconcile(db);
+  const withdrawalAccounts = db.prepare(`SELECT DISTINCT a.id,a.active_hours_start,a.active_hours_end,a.timezone,a.working_days FROM accounts a
+    JOIN invitation_withdrawals j ON j.account_id=a.id
+    WHERE a.is_authenticated=1 AND j.status IN ('queued','checking','verification_required')
+    AND j.due_at<=? AND j.next_check_at<=? AND (j.checks<6 OR j.status='checking')`).all(Date.now(), Date.now()) as Array<{ id: string } & ScheduleConfig>;
+  for (const account of withdrawalAccounts) {
+    if (!isWithinSchedule(account)) continue;
+    // Lazy page: the provider is never opened when policy/lifecycle denies execution.
+    let page: Awaited<ReturnType<typeof getSessionPage>> | undefined;
+    const provider = async () => new LinkedinWithdrawalProvider(page ??= await getSessionPage(account.id));
+    try {
+      await processWithdrawals(db, account.id, {
+        inspect: async i => (await provider()).inspect(i),
+        withdraw: async (i, authorize) => (await provider()).withdraw(i, authorize),
+      });
+    } catch (e) { console.warn('[withdrawals]', e instanceof Error ? e.message : e); }
+    finally { if (page) await page.close().catch(() => {}); }
+  }
   const activeRuns = db.prepare(`
     SELECT r.id as run_id, r.workflow_id, r.account_id, r.email_account_id,
            a.daily_connection_limit, a.daily_message_limit, a.daily_inmail_limit,
@@ -1378,7 +1415,17 @@ async function tick(db: ReturnType<typeof getDb>): Promise<void> {
     if (!runStatus || runStatus.status !== "running") continue;
 
     const target = db.prepare("SELECT * FROM targets WHERE id = ?").get(tr.target_id) as Target;
-    await executeStep(db, tr.run_id, tr, target, steps, tr.account_id, limits, emailAccountId, emailLimits, getWorkflowPrompt(tr.workflow_id));
+    await withLinkedinExecution(db, tr.account_id, async () => {
+      // The schedule was assembled before locking. Re-read both campaign and track.
+      const current = db.prepare(`SELECT r.status,rt.state FROM runs r JOIN run_profiles rp ON rp.run_id=r.id
+        JOIN run_profile_tracks rt ON rt.run_profile_id=rp.id WHERE rt.id=?`).get(tr.id) as { status: string; state: string } | undefined;
+      if (!current || current.status !== 'running' || !['pending','in_progress'].includes(current.state)) return;
+      if (tr.track === 'linkedin' && db.prepare(`SELECT 1 FROM campaign_invitations i
+        LEFT JOIN invitation_withdrawals j ON j.invitation_id=i.id WHERE i.target_id=?
+        AND (i.state IN ('withdrawn','absent','ownership_ambiguous') OR j.action_started=1 OR j.status='verification_required') LIMIT 1`).get(tr.target_id)) return;
+      const fresh = db.prepare("SELECT * FROM targets WHERE id=?").get(target.id) as Target;
+      await executeStep(db, tr.run_id, tr, fresh, steps, tr.account_id, limits, emailAccountId, emailLimits, getWorkflowPrompt(tr.workflow_id));
+    });
     await randomDelay(PROFILE_DELAY_MIN, PROFILE_DELAY_MAX);
   }
 }
