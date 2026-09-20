@@ -283,8 +283,8 @@ function LinkedInTab({ initialAccounts }: { initialAccounts: LiAccount[] }) {
       setAuthMode("cookies");
     } else if (data.status === "challenge") {
       setChallengeMsg(data.message ?? "");
-      if (data.kind === "app") {
-        if (loginStage === "approve") toast.error("Still waiting — approve the request in your LinkedIn app, then click Continue.");
+      if (data.kind === "app" || data.kind === "unknown") {
+        if (loginStage === "approve") toast.error("LinkedIn verification is still pending. Check LinkedIn or use cookie login.");
         setLoginStage("approve");
       } else {
         setLoginStage("code");
@@ -571,7 +571,7 @@ function LinkedInTab({ initialAccounts }: { initialAccounts: LiAccount[] }) {
                 ) : loginStage === "approve" ? (
                   <div className="bg-info/10 text-info text-xs rounded-lg p-3 flex items-start gap-2">
                     <RiSmartphoneLine size={16} className="shrink-0 mt-0.5" />
-                    <span>{challengeMsg || "Approve the sign-in request in your LinkedIn mobile app, then click Continue."}</span>
+                    <span>{challengeMsg || "Complete the LinkedIn verification step, then check the login again. If it needs manual interaction, use Paste cookies."}</span>
                   </div>
                 ) : (
                   <div>
@@ -583,7 +583,7 @@ function LinkedInTab({ initialAccounts }: { initialAccounts: LiAccount[] }) {
                 <div className="modal-action mt-1">
                   <button type="button" className="inline-flex items-center px-3 py-1.5 rounded-lg text-sm text-base-content/60 hover:text-base-content hover:bg-base-300/50 transition-colors" onClick={closeAuthModal}>Cancel</button>
                   <button type="submit" className="inline-flex items-center gap-1.5 px-4 py-1.5 rounded-lg text-sm font-medium bg-primary text-primary-content hover:bg-primary/90 transition-colors disabled:opacity-50" disabled={authLoading}>
-                    {authLoading ? <span className="loading loading-spinner loading-xs" /> : loginStage === "creds" ? "Log in" : loginStage === "approve" ? "I approved — Continue" : "Verify code"}
+                    {authLoading ? <span className="loading loading-spinner loading-xs" /> : loginStage === "creds" ? "Log in" : loginStage === "approve" ? "Check login" : "Verify code"}
                   </button>
                 </div>
               </form>

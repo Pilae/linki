@@ -3,6 +3,7 @@ import type { Browser, BrowserContext, Page } from "playwright";
 import StealthPlugin from "puppeteer-extra-plugin-stealth";
 import { getDb } from "@/lib/db";
 import { encryptSecret, decryptSecret } from "@/lib/crypto";
+import { hasCaptchaSignal, hasInvalidCredentialSignal } from "./login-signals";
 
 chromium.use(StealthPlugin());
 
@@ -327,9 +328,8 @@ async function persistLogin(accountId: string, ctx: BrowserContext, page?: Page)
 
 /**
  * Inspect the page after a login/verify submit and classify the outcome.
- * LinkedIn varies its challenge per attempt — email/SMS code OR device (app)
- * approval — so we detect both: a visible code input = otp; a checkpoint page
- * with no code input and no captcha = device approval.
+ * LinkedIn varies its challenge per attempt. A visible code input identifies
+ * an OTP step; a checkpoint without a recognizable control stays unknown.
  */
 async function classifyLoginState(page: Page): Promise<LoginResult> {
   const start = Date.now();
@@ -352,30 +352,29 @@ async function classifyLoginState(page: Page): Promise<LoginResult> {
 
     if (/checkpoint\/challenge/.test(url)) {
       // CAPTCHA (Arkose / FunCaptcha) — cannot be solved headlessly
-      const cap = page.locator("iframe[src*='arkoselabs'], iframe[title*='captcha'], #captcha-internal");
-      if ((await cap.count().catch(() => 0)) > 0) {
+      if (await hasCaptchaSignal(page)) {
         return {
           status: "challenge",
           kind: "captcha",
           message: "LinkedIn requires a CAPTCHA, which can't be solved on the server. Use cookie paste instead.",
         };
       }
-      // Device/app approval: a settled checkpoint with no code input and no captcha
+      // A settled checkpoint with no identifiable code input or CAPTCHA. The
+      // challenge copy varies by language, so do not guess its mechanism.
       if (Date.now() - start > 4_000) {
         return {
           status: "challenge",
-          kind: "app",
-          message: "LinkedIn sent a sign-in request to your LinkedIn mobile app. Approve it there, then click Continue.",
+          kind: "unknown",
+          message: "LinkedIn requires another verification step. If it is a device approval, approve it and check again. For other manual steps, use Paste cookies.",
         };
       }
     }
 
-    // Wrong credentials
-    const wrongPw = await page
-      .getByText(/that.?s not the right password|please enter a valid|couldn.?t find a linkedin account/i)
-      .count()
-      .catch(() => 0);
-    if (wrongPw > 0) return { status: "error", message: "Wrong email or password." };
+    // Use form validation state rather than English error sentences. An
+    // unrecognized failure remains generic instead of misclassifying it.
+    if (await hasInvalidCredentialSignal(page)) {
+      return { status: "error", message: "LinkedIn rejected the login fields. Check your email and password." };
+    }
 
     await page.waitForTimeout(800);
   }
@@ -384,7 +383,7 @@ async function classifyLoginState(page: Page): Promise<LoginResult> {
     return {
       status: "challenge",
       kind: "unknown",
-      message: "LinkedIn presented a security checkpoint. If you got a code enter it; if it's an app request, approve it and click Continue.",
+      message: "LinkedIn presented a security checkpoint. If it is a device approval, approve it and check again. For other manual steps, use Paste cookies.",
     };
   }
   return { status: "error", message: `Login did not complete. Current page: ${page.url()}` };
@@ -472,9 +471,9 @@ export async function submitLoginChallenge(accountId: string, code: string): Pro
 
 /**
  * Wait for a device/app-approval challenge to clear. Called after the user
- * approves the sign-in in their LinkedIn mobile app — the checkpoint page then
- * auto-advances to the feed. Also dismisses a possible "remember this browser?"
- * interstitial. If still pending, returns the challenge so the user can retry.
+ * approves the sign-in in their LinkedIn mobile app — the checkpoint page may
+ * auto-advance to the feed. If still pending, return the challenge. Do not
+ * click a generic submit button on an unidentified security interstitial.
  */
 export async function awaitLoginApproval(accountId: string): Promise<LoginResult> {
   const p = pendingLogins.get(accountId);
@@ -488,16 +487,7 @@ export async function awaitLoginApproval(accountId: string): Promise<LoginResult
       .then(() => true)
       .catch(() => false);
 
-    if (!reachedFeed) {
-      // Possible post-approval interstitial (e.g. "remember this browser?")
-      const btn = page
-        .locator("button[type=submit]:visible, button:has-text('Yes'):visible, button:has-text('Ja'):visible")
-        .first();
-      if ((await btn.count().catch(() => 0)) > 0) {
-        await btn.click().catch(() => {});
-        await page.waitForURL(/\/feed\/|linkedin\.com\/sales\//, { timeout: 20_000 }).catch(() => {});
-      }
-    }
+    if (!reachedFeed) console.info("[login] approval has not reached the feed; leaving checkpoint controls untouched");
 
     const result = await classifyLoginState(page);
     console.log(`[login] await account=${accountId} -> ${result.status}${"kind" in result ? "/" + result.kind : ""} url=${page.url()}`);

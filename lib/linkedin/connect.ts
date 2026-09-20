@@ -1,4 +1,5 @@
-import type { Page } from "playwright";
+import type { Page, Locator } from "playwright";
+import { linkedinLabel } from "./labels";
 
 export class WeeklyLimitError extends Error {}
 export class AlreadyConnectedError extends Error {}
@@ -14,70 +15,71 @@ export async function sendConnectionRequest(page: Page, linkedinUrl: string): Pr
   await page.goto(linkedinUrl, { waitUntil: "domcontentloaded", timeout: 30000 });
   await page.waitForTimeout(2000 + Math.random() * 1000);
 
-  // Already connected? Primary signal: presence of the profile's "Message" link
-  // (only shown to 1st-degree connections) — an href attribute, not a CSS class
-  // or translated text, so it survives LinkedIn's class-name hashing and non-
-  // English UI languages. Falls back to the old text-scrape for accounts/layouts
-  // where that link isn't found as a plain <a href>.
-  //
-  // MUST be scoped to the visited person's own intro/top card — a page-wide
-  // search also matches "Message" links / "1st" badges belonging to OTHER
-  // people rendered elsewhere on the page (sidebar modules like "People also
-  // viewed"). For a non-connected target this false-positived AlreadyConnected,
-  // which skipped the real invite AND (via the message step that follows) sent
-  // a message to a random unrelated 1st-degree connection instead of the
-  // target — see CLAUDE.md / memory for the Jul 2026 incident. The top card is
-  // identified structurally as the section containing the page's own <h1> name
-  // heading, robust to class-name hashing. Mirrors the same fix in visit.ts.
-  const topCard = page.locator("main section").filter({ has: page.locator("h1") }).first();
-  const hasMessageLink = await topCard.locator('a[href*="/messaging/compose"]').first().count() > 0;
-  if (hasMessageLink) throw new AlreadyConnectedError("Already connected");
-  const pageText = await topCard.innerText().catch(() => "");
-  if (/\b1st\b/.test(pageText)) throw new AlreadyConnectedError("Already connected");
+  if (/\/(login|uas\/login|checkpoint|authwall|challenge)(?:[/?#]|$)/i.test(page.url()) ||
+      await page.locator('input[type="password"]:visible').count()) {
+    throw new Error("LinkedIn login or verification is required. Complete it manually before retrying; no invitation was attempted.");
+  }
 
-  // Pending?
-  if (/\bPending\b/.test(pageText)) throw new PendingInviteError("Invitation already pending");
-  const pendingBtn = page.locator('button[aria-label*="Pending"]:visible');
-  if (await pendingBtn.count() > 0) throw new PendingInviteError("Invitation already pending");
+  const topCard = await getConnectionProfileCard(page, linkedinUrl);
+  if (await topCard.getByText(linkedinLabel("firstDegree")).filter({visible:true}).count()) throw new AlreadyConnectedError("Already connected");
 
-  // Case 1: Direct Connect link (primary CTA) — navigate to its href directly.
-  // Clicking fails because the Sales Nav overlay SVG intercepts pointer events.
-  const directConnect = page.locator('a[aria-label*="Invite"][aria-label*="to connect"]:visible, a[href*="custom-invite"]:visible').first();
-  if (await directConnect.count() > 0) {
-    const href = await directConnect.getAttribute("href");
-    if (!href) throw new Error("Connect link has no href");
-    const inviteUrl = href.startsWith("http") ? href : `https://www.linkedin.com${href}`;
-    await page.goto(inviteUrl, { waitUntil: "domcontentloaded", timeout: 30000 });
-    await page.waitForTimeout(1000);
+  // Share the same scoped matcher before sending and when confirming the result.
+  if (await pendingInvitation(topCard).count()) throw new PendingInviteError("Invitation already pending");
+
+  // Scope actions to this profile, never navigation or suggested profiles.
+  const directConnect = topCard.locator('a[href*="custom-invite"]:visible')
+    .or(topCard.getByRole('button', {name: linkedinLabel("invite")}))
+    .or(topCard.getByRole('link', {name: linkedinLabel("invite")}))
+    .or(topCard.getByRole('button', {name: linkedinLabel("connect")}))
+    .or(topCard.getByRole('link', {name: linkedinLabel("connect")}));
+  if (await directConnect.count() === 1) {
+    // Normal click respects overlays rather than bypassing them via URL navigation.
+    await directConnect.click({timeout:5000});
+  } else if (await directConnect.count() > 1) {
+    throw new Error("Multiple connection actions in the profile header. Review the profile manually; no invitation was attempted.");
   } else {
-    // Case 2: Connect is inside the "..." More menu
-    // LinkedIn has two "More" buttons on page: [0] = nav bar, [1] = profile card
-    const moreBtn = page.locator('button[aria-label="More"]:visible').nth(1);
-    await moreBtn.click();
-    await page.waitForTimeout(800);
-
-    // Check for Pending in the menu — means invite was already sent
-    const pendingMenuItem = page.locator('[role="menuitem"]:has-text("Pending"):visible');
-    if (await pendingMenuItem.count() > 0) throw new PendingInviteError("Invitation already pending (found in More menu)");
-
-    const connectOption = page.locator('[role="menuitem"]:has-text("Connect"):visible');
-    if (await connectOption.count() === 0) throw new Error("Connect option not found in More menu");
-    await connectOption.first().click();
+    // Include the icon-only overflow selector used by newer action bars (upstream #15).
+    // Keep every candidate in the verified card; never fall back to page-wide actions.
+    const more = topCard.getByRole('button', {
+      name: linkedinLabel("more"),
+    }).or(topCard.locator('button[data-x--lead-actions-bar-overflow-menu]')).filter({ visible: true });
+    if (await more.count() !== 1 || !await more.isVisible()) throw new Error("No unique More button in the profile header. LinkedIn layout or language is unsupported; no invitation was attempted.");
+    await more.click({timeout:5000});
+    const menus=page.locator('[role="menu"]:visible, [role="listbox"]:visible');
+    await menus.first().waitFor({state:'visible',timeout:5000});
+    if(await menus.count()!==1)throw new Error("Multiple open menus; review the profile manually before retrying.");
+    if(await menus.getByText(linkedinLabel("pending")).filter({visible:true}).count())throw new PendingInviteError("Invitation already pending");
+    const connect = menus.locator('a[href*="custom-invite"]')
+      .or(menus.getByRole('menuitem', { name: linkedinLabel("invite") }))
+      .or(menus.getByRole('option', { name: linkedinLabel("invite") }))
+      .or(menus.getByRole('button', { name: linkedinLabel("invite") }))
+      .or(menus.getByRole('menuitem', { name: linkedinLabel("connect") }))
+      .or(menus.getByRole('option', { name: linkedinLabel("connect") }))
+      .or(menus.getByRole('button', { name: linkedinLabel("connect") }))
+      .filter({ visible: true });
+    if(await connect.count()!==1)throw new Error("No unique Connect action in the profile menu. Review the profile manually before retrying.");
+    await connect.click({timeout:5000});
   }
 
   await page.waitForTimeout(1000);
 
+  // LinkedIn can show the limit immediately after Connect, before a send dialog.
+  const limitPopup = page.locator('div[class*="ip-fuse-limit-alert__warning"]');
+  if (await limitPopup.count() > 0) throw new WeeklyLimitError("Weekly connection limit reached");
+
   // Click "Send without a note" / "Send now"
-  const sendBtn = page.locator(
-    'button:has-text("Send now"), button[aria-label*="Send without"], button[aria-label*="Send invitation"]:not([aria-label*="note"])'
-  );
-  if (await sendBtn.count() > 0) {
-    await sendBtn.first().click({ force: true });
+  const sendBtn = page.locator('[role="dialog"]:visible')
+    .getByRole('button', {name: linkedinLabel("sendWithoutNote")});
+  if (await sendBtn.count() === 1) {
+    await sendBtn.click({timeout:5000});
     await page.waitForTimeout(1500);
   }
 
-  // Check for weekly limit popup
-  const limitPopup = page.locator('div[class*="ip-fuse-limit-alert__warning"]');
+  else {
+    throw new Error("Invitation confirmation was not found or was ambiguous. Outcome unconfirmed: check LinkedIn before retrying.");
+  }
+
+  // The limit can also appear after the send action.
   if (await limitPopup.count() > 0) throw new WeeklyLimitError("Weekly connection limit reached");
 
   // Check for error toast
@@ -86,4 +88,35 @@ export async function sendConnectionRequest(page: Page, linkedinUrl: string): Pr
     const msg = await errorToast.innerText();
     throw new Error(`Connection error: ${msg.trim()}`);
   }
+  const confirmed = pendingInvitation(topCard).or(page.getByText(linkedinLabel("invitationSent")));
+  try {
+    await confirmed.first().waitFor({state:'visible',timeout:5000});
+  } catch {
+    throw new Error("Invitation outcome is unconfirmed. Check LinkedIn before retrying; no sent status was recorded.");
+  }
+
+}
+
+/** Resolve only the visited profile card; never expand to main or the sidebar. */
+export async function getConnectionProfileCard(page: Page, linkedinUrl: string) {
+  const url = new URL(linkedinUrl);
+  const match = url.pathname.match(/^\/in\/([^/]+)\/?$/);
+  if (!match || !["www.linkedin.com", "linkedin.com"].includes(url.hostname)) throw new Error("Unsupported LinkedIn profile URL");
+  const marker = `ProfileVerificationTriggerRef-${decodeURIComponent(match[1])}`;
+  // Observed newer layout: h2 nested inside this profile-specific marker.
+  const modern = page.locator(`[componentkey=${JSON.stringify(marker)}]:visible`)
+    .filter({has:page.locator('h2')}).locator('xpath=ancestor::section[1]');
+  const legacy = page.locator('main section:visible').filter({has:page.locator('h1')});
+  const card = await modern.count() ? modern : legacy;
+  if (await card.count() !== 1 || !await card.isVisible()) {
+    throw new Error("LinkedIn profile header was not found or was ambiguous. The session may need verification or the layout is unsupported; no invitation was attempted.");
+  }
+  return card;
+}
+
+// LinkedIn expands the accessible name to include the withdrawal action and recipient.
+// Match the status prefix, scoped to this profile, without clicking withdrawal controls.
+function pendingInvitation(card: Locator) {
+  const name = linkedinLabel("pending");
+  return card.getByRole('button', {name}).or(card.getByRole('link', {name}));
 }

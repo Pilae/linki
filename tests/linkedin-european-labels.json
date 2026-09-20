@@ -1,0 +1,239 @@
+[
+  {
+    "locale": "de_DE",
+    "firstDegree": "1.",
+    "otherDegrees": [
+      "2.",
+      "3."
+    ],
+    "connect": "Vernetzen",
+    "invite": "{recipient} als Kontakt einladen",
+    "more": "Mehr",
+    "pending": "Ausstehend",
+    "sendWithoutNote": "Ohne Notiz senden",
+    "expandedPending": "Ausstehend, klicken Sie, um die an {recipient} gesendete Einladung zurückzuziehen"
+  },
+  {
+    "locale": "es_ES",
+    "firstDegree": "1er",
+    "otherDegrees": [
+      "2º",
+      "3er"
+    ],
+    "connect": "Conectar",
+    "invite": "Invita a {recipient} a conectar",
+    "more": "Más",
+    "pending": "Pendiente",
+    "sendWithoutNote": "Enviar sin nota",
+    "expandedPending": "Pendiente. Haz clic para retirar la invitación enviada a {recipient}."
+  },
+  {
+    "locale": "it_IT",
+    "firstDegree": "1°",
+    "otherDegrees": [
+      "2°",
+      "3°"
+    ],
+    "connect": "Collegati",
+    "invite": "Invita {recipient} a collegarsi",
+    "more": "Altro",
+    "pending": "In sospeso",
+    "sendWithoutNote": "Invia senza nota",
+    "expandedPending": "In sospeso, clicca per ritirare l’invito inviato a {recipient}"
+  },
+  {
+    "locale": "nl_NL",
+    "firstDegree": "1ste",
+    "otherDegrees": [
+      "2e",
+      "3de"
+    ],
+    "connect": "Connectie maken",
+    "invite": "Connectieverzoek verzenden naar {recipient}",
+    "more": "Meer",
+    "pending": "In behandeling",
+    "sendWithoutNote": "Verzenden zonder opmerking",
+    "expandedPending": "In behandeling, klik om de verzonden uitnodiging in te trekken {recipient}"
+  },
+  {
+    "locale": "pt_BR",
+    "firstDegree": "1º",
+    "otherDegrees": [
+      "2º",
+      "3º"
+    ],
+    "connect": "Conectar",
+    "invite": "Convidar {recipient} para se conectar",
+    "more": "Mais",
+    "pending": "Pendente",
+    "sendWithoutNote": "Enviar sem nota",
+    "expandedPending": "Pendente; clique para retirar o convite enviado a {recipient}"
+  },
+  {
+    "locale": "pl_PL",
+    "firstDegree": "1.",
+    "otherDegrees": [
+      "2.",
+      "3."
+    ],
+    "connect": "Połącz",
+    "invite": "Zaproś użytkownika {recipient} do nawiązania kontaktu",
+    "more": "Więcej",
+    "pending": "W toku",
+    "sendWithoutNote": "Wyślij bez notatki",
+    "expandedPending": "W toku; kliknij, aby wycofać zaproszenie wysłane do użytkownika {recipient}"
+  },
+  {
+    "locale": "cs_CZ",
+    "firstDegree": "1.",
+    "otherDegrees": [
+      "2.",
+      "3."
+    ],
+    "connect": "Navázat spojení",
+    "invite": "Pozvat uživatele {recipient} ke spojení",
+    "more": "Více",
+    "pending": "Čeká na vyřízení",
+    "sendWithoutNote": "Odeslat bez poznámky",
+    "expandedPending": "Čeká na vyřízení, kliknutím stáhnete pozvání odeslané uživateli {recipient}"
+  },
+  {
+    "locale": "da_DK",
+    "firstDegree": "1.",
+    "otherDegrees": [
+      "3."
+    ],
+    "connect": "Opret forbindelse",
+    "invite": "Inviter {recipient} til dit netværk",
+    "more": "Mere",
+    "pending": "Ventende",
+    "sendWithoutNote": "Send uden en note",
+    "expandedPending": "Ventende, klik for at trække invitationen til {recipient} tilbage"
+  },
+  {
+    "locale": "el_GR",
+    "firstDegree": "1η",
+    "otherDegrees": [
+      "2η",
+      "3η"
+    ],
+    "connect": "Σύνδεση",
+    "invite": "Προσκαλέστε τον χρήστη {recipient} για σύνδεση",
+    "more": "Περισσότερα",
+    "pending": "Σε εκκρεμότητα",
+    "sendWithoutNote": "Αποστολή χωρίς σημείωση",
+    "expandedPending": "Σε εκκρεμότητα, κάντε κλικ για να αποσύρετε την πρόσκληση που στείλατε στον χρήστη {recipient}"
+  },
+  {
+    "locale": "fi_FI",
+    "firstDegree": "1.",
+    "otherDegrees": [
+      "2.",
+      "3."
+    ],
+    "connect": "Muodosta yhteys",
+    "invite": "Kutsu {recipient} verkostoitumaan",
+    "more": "Enemmän",
+    "pending": "Odottaa",
+    "sendWithoutNote": "Lähetä ilman tekstiä",
+    "expandedPending": "Odottaa, peru jäsenelle {recipient} lähetetty kutsu napsauttamalla"
+  },
+  {
+    "locale": "hu_HU",
+    "firstDegree": "első",
+    "otherDegrees": [
+      "második",
+      "harmadik"
+    ],
+    "connect": "Társítom",
+    "invite": "{recipient} meghívása, hogy kapcsolódjon Önhöz",
+    "more": "Továbbiak",
+    "pending": "Függőben",
+    "sendWithoutNote": "Küldés megjegyzés nélkül",
+    "expandedPending": "Függőben, kattintson a(z) {recipient} számára küldött meghívás visszavonásához"
+  },
+  {
+    "locale": "no_NO",
+    "firstDegree": "1.",
+    "otherDegrees": [
+      "2.",
+      "3."
+    ],
+    "connect": "Knytt kontakt",
+    "invite": "Inviter {recipient} til å knytte kontakt",
+    "more": "Mer",
+    "pending": "Venter",
+    "sendWithoutNote": "Send uten notat",
+    "expandedPending": "Venter, klikk for å trekke tilbake invitasjonen som ble sendt til {recipient}"
+  },
+  {
+    "locale": "ro_RO",
+    "firstDegree": "Gr. 1",
+    "otherDegrees": [
+      "Gr. 2",
+      "3"
+    ],
+    "connect": "Conectați-vă",
+    "invite": "Invitați pe {recipient} să se conecteze",
+    "more": "Mai multe",
+    "pending": "Între timp",
+    "sendWithoutNote": "Trimiteți fără notă",
+    "expandedPending": "Între timp, faceți clic pentru a retrage invitația trimisă către {recipient}"
+  },
+  {
+    "locale": "ru_RU",
+    "firstDegree": "1-й",
+    "otherDegrees": [
+      "2-й",
+      "3-й"
+    ],
+    "connect": "Установить контакт",
+    "invite": "Пригласить участника {recipient} установить контакт",
+    "more": "Еще",
+    "pending": "На рассмотрении",
+    "sendWithoutNote": "Отправить без заметки",
+    "expandedPending": "На рассмотрении – нажмите, чтобы отозвать приглашение, отправленное участнику {recipient}"
+  },
+  {
+    "locale": "sv_SE",
+    "firstDegree": "1:a",
+    "otherDegrees": [
+      "2:a",
+      "3:e"
+    ],
+    "connect": "Skapa kontakt",
+    "invite": "Skicka en kontaktinbjudan till {recipient}",
+    "more": "Mer",
+    "pending": "Obesvarad",
+    "sendWithoutNote": "Skicka utan meddelande",
+    "expandedPending": "Obesvarad. Klicka för att dra tillbaka inbjudan som skickats till {recipient}."
+  },
+  {
+    "locale": "tr_TR",
+    "firstDegree": "1.",
+    "otherDegrees": [
+      "2.",
+      "3. derece"
+    ],
+    "connect": "Bağlantı kur",
+    "invite": "{recipient} adlı kullanıcıyı bağlantı kurmak için davet et",
+    "more": "Daha fazla",
+    "pending": "Beklemede",
+    "sendWithoutNote": "Not olmadan gönderin",
+    "expandedPending": "Beklemede, {recipient} adlı kullanıcıya gönderilen daveti geri almak için tıklayın"
+  },
+  {
+    "locale": "uk_UA",
+    "firstDegree": "1-й",
+    "otherDegrees": [
+      "2-й",
+      "3-й"
+    ],
+    "connect": "Встановити контакт",
+    "invite": "Надіслати запрошення учасникові {recipient}, щоб встановити контакт",
+    "more": "Більше",
+    "pending": "Розглядається",
+    "sendWithoutNote": "Надіслати без примітки",
+    "expandedPending": "Розглядається, натисність, щоб відкликати запрошення, надіслане учаснику {recipient}"
+  }
+]

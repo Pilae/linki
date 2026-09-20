@@ -1,0 +1,12 @@
+const assert=require('node:assert/strict');
+const {loadLinkedIn}=require('./load-linkedin.cjs');
+const {visitProfile}=loadLinkedIn('visit');
+const {chromium}=require('playwright');
+(async()=>{const browser=await chromium.launch({headless:true,executablePath:process.env.PLAYWRIGHT_CHROMIUM_EXECUTABLE_PATH||undefined,args:['--no-sandbox']});let passed=0;try{for(const c of [
+{badge:"1st",profileUrl:"https://linkedin.com/in/synthetic/",degree:true},{badge:"2nd",profileUrl:"https://linkedin.com/in/synthetic/",degree:false},
+{badge:"1st",profileUrl:"https://www.linkedin.com.example.com/in/synthetic/",error:/Unsupported LinkedIn profile URL/},
+{badge:'· 1er',degree:true},{badge:'· 1er</span><span style="display:none">2e',degree:true},{badge:'· 1er</span><span>2e',error:/Conflicting|could not be verified/},{badge:'1st',degree:true},{badge:'· 2e',degree:false},{badge:'',error:/could not be verified/},{badge:'Unknown',error:/could not be verified/},{badge:'· 1er',urn:'urn:li:fsd_profile:target_123',degree:true},
+{html:'<main><h2>Unsupported</h2><aside>1st</aside></main>',error:/profile header/},{html:'<input type="password">',error:/login or verification/},
+{badge:'· 2e',extra:'<aside><span>1st</span><a href="/messaging/compose/?profileUrn=urn:li:fsd_profile:wrong">Message</a></aside>',degree:false}
+]){const page=await browser.newPage();await page.route('**/*',r=>r.abort());page.goto=async()=>page.setContent(c.html||`<section><a componentkey="ProfileVerificationTriggerRef-synthetic"><h2>Synthetic</h2></a><span>${c.badge}</span><a href="/messaging/compose/${c.urn?'?profileUrn='+encodeURIComponent(c.urn):''}">Message</a></section>${c.extra||''}`);page.waitForTimeout=async()=>{};
+if(c.error)await assert.rejects(visitProfile(page,c.profileUrl||'https://www.linkedin.com/in/synthetic'),c.error);else{const r=await visitProfile(page,c.profileUrl||'https://www.linkedin.com/in/synthetic');assert.equal(r.isFirstDegree,c.degree);assert.equal(r.messagingUrn,c.urn||null);}passed++;await page.close();}console.log(JSON.stringify({passed,network:'none',synthetic:true}));}finally{await browser.close();}})().catch(e=>{console.error(e);process.exitCode=1;});
