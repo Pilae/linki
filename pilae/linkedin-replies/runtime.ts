@@ -11,6 +11,8 @@ export function enabledAccounts(): string[] {
 export async function checkAccount(account: string) {
   const db=getDb(); migrate(db);
   if(premium?.replies || !enabledAccounts().includes(account)) return {disabled:true,reason:premium?.replies?'premium_provider':'not_enabled',status:state(db,account)};
+  const owner=state(db,account)?.provider;
+  if(owner && owner!=='pilae') return {disabled:true,reason:'provider_handover_required',status:state(db,account)};
   const a=db.prepare('SELECT is_authenticated FROM accounts WHERE id=?').get(account) as {is_authenticated:number}|undefined;
   if(!a) return {disabled:true,reason:'unknown_account'};
   // Lazy context creation happens inside synchronization so failures get durable health status.
@@ -31,7 +33,7 @@ export async function checkAccount(account: string) {
 export async function syncPremium(account:string): Promise<number> {
   if(!premium?.replies) return 0;
   const db=getDb(); migrate(db); const token=acquire(db,account,'premium',Date.now());
-  if(!token) return 0;
+  if(!token) throw new Error('Reply provider ownership or synchronization lease unavailable');
   // Premium is opaque: renew while it is executing, do not pretend its internal cursor is ours.
   const timer=setInterval(()=>db.prepare('UPDATE pilae_reply_accounts SET lease_until=? WHERE account_id=? AND lease=?').run(Date.now()+120_000,account,token),30_000);
   try{return await premium.replies.syncAccountInbox(account);}finally{clearInterval(timer);release(db,account,token);}

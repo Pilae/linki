@@ -8,7 +8,7 @@ Namespaced reader, durable account/conversation/message storage, pinned recipien
 
 ## Verified with synthetic evidence
 
-- 18 reply fixtures pass (reader, synchronization, API/runtime boundary): duplicate delivery, conversation/message pages, older outbound evidence arriving later, disk/database restart, partial error, atomic rollback, overlapping checks, stale leases, premium exclusion, mailbox identity change, pinned recipient identity, ambiguous recipients/campaigns, group/system/outbound/old messages, completed campaigns and account isolation.
+- 19 reply fixtures pass (reader, synchronization, API/runtime boundary): duplicate delivery, conversation/message pages, older outbound evidence arriving later, disk/database restart, partial error, atomic rollback, overlapping checks, stale leases, premium exclusion, mailbox identity change, pinned recipient identity, ambiguous recipients/campaigns, group/system/outbound/old messages, completed campaigns and account isolation.
 - Contribution guard fixture passes: clean generic change accepted; Pilae paths and shared integration changes without markers rejected.
 - Existing enrollment (11 tests), acceptance-sync and campaign-metrics fixtures pass. Existing Chromium fixtures pass: connection navigation, 34-language labels, localized counts, login signals and profile handling. Network disabled for those browser fixtures.
 - Linki TypeScript check, scoped ESLint and production build pass. Build retains existing warnings about inferred workspace root and missing optional `@/ee`. Initial sandboxed build/browser attempts could not launch worker processes; reruns with process permission passed.

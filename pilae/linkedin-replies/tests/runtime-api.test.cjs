@@ -33,3 +33,13 @@ test('scheduler checks enabled accounts with no runs and records session failure
  const s=f.load('pilae/linkedin-replies/store.ts').state(f.db,'account');assert.equal(f.contexts(),1);assert.equal(s.incomplete,1);assert.equal(s.last_success,null);assert.equal(s.error,'transport');
  }finally{global.setInterval=original;if(old===undefined)delete process.env.PILAE_REPLY_ACCOUNT_IDS;else process.env.PILAE_REPLY_ACCOUNT_IDS=old;f.db.close();}
 });
+
+test('provider handover is disabled explicitly and premium lock refusal is not a successful zero check',async()=>{
+ const f=fixture(),old=process.env.PILAE_REPLY_ACCOUNT_IDS;process.env.PILAE_REPLY_ACCOUNT_IDS='account';
+ try {
+  const store=f.load('pilae/linkedin-replies/store.ts');store.migrate(f.db);const token=store.acquire(f.db,'account','premium',Date.now());store.release(f.db,'account',token);
+  assert.equal((await f.load('pilae/linkedin-replies/runtime.ts').checkAccount('account')).reason,'provider_handover_required');assert.equal(f.contexts(),0);
+ } finally {if(old===undefined)delete process.env.PILAE_REPLY_ACCOUNT_IDS;else process.env.PILAE_REPLY_ACCOUNT_IDS=old;f.db.close();}
+ const p=fixture({replies:{syncAccountInbox:async()=>assert.fail('wrong provider')}}),store=p.load('pilae/linkedin-replies/store.ts');store.migrate(p.db);store.acquire(p.db,'account','pilae',Date.now());
+ await assert.rejects(p.load('pilae/linkedin-replies/runtime.ts').syncPremium('account'),/ownership/);p.db.close();
+});
