@@ -26,13 +26,15 @@ test('manual endpoint rejects missing auth and malformed input; GET never reads 
  }finally{if(old===undefined)delete process.env.INTERNAL_API_SECRET;else process.env.INTERNAL_API_SECRET=old;f.db.close();}
 });
 test('scheduler checks enabled accounts with no runs and records session failure without starting outreach',async()=>{
- const f=fixture(),old=process.env.PILAE_REPLY_ACCOUNT_IDS,oldConversations=process.env.PILAE_REPLY_CONVERSATIONS_QUERY,oldMessages=process.env.PILAE_REPLY_MESSAGES_QUERY;
- process.env.PILAE_REPLY_ACCOUNT_IDS='account';process.env.PILAE_REPLY_CONVERSATIONS_QUERY='messengerConversations.'+'a'.repeat(32);process.env.PILAE_REPLY_MESSAGES_QUERY='messengerMessages.'+'b'.repeat(32);
+ const f=fixture(),old=process.env.PILAE_REPLY_ACCOUNT_IDS,oldConversations=process.env.PILAE_REPLY_CONVERSATIONS_QUERY,
+  oldAnchor=process.env.PILAE_REPLY_HISTORY_ANCHOR_QUERY,oldPrevious=process.env.PILAE_REPLY_HISTORY_PREVIOUS_QUERY;
+ process.env.PILAE_REPLY_ACCOUNT_IDS='account';process.env.PILAE_REPLY_CONVERSATIONS_QUERY='messengerConversations.'+'a'.repeat(32);
+ process.env.PILAE_REPLY_HISTORY_ANCHOR_QUERY='messengerMessages.'+'b'.repeat(32);process.env.PILAE_REPLY_HISTORY_PREVIOUS_QUERY='messengerMessages.'+'c'.repeat(32);
  const original=global.setInterval;global.setInterval=()=>({unref(){}});
  try{
  f.load('pilae/linkedin-replies/runtime.ts').startReplyScheduler();await new Promise(resolve=>setImmediate(resolve));
  const s=f.load('pilae/linkedin-replies/store.ts').state(f.db,'account');assert.equal(f.contexts(),1);assert.equal(s.incomplete,1);assert.equal(s.last_success,null);assert.equal(s.error,'transport');
- }finally{global.setInterval=original;if(old===undefined)delete process.env.PILAE_REPLY_ACCOUNT_IDS;else process.env.PILAE_REPLY_ACCOUNT_IDS=old;if(oldConversations===undefined)delete process.env.PILAE_REPLY_CONVERSATIONS_QUERY;else process.env.PILAE_REPLY_CONVERSATIONS_QUERY=oldConversations;if(oldMessages===undefined)delete process.env.PILAE_REPLY_MESSAGES_QUERY;else process.env.PILAE_REPLY_MESSAGES_QUERY=oldMessages;f.db.close();}
+ }finally{global.setInterval=original;if(old===undefined)delete process.env.PILAE_REPLY_ACCOUNT_IDS;else process.env.PILAE_REPLY_ACCOUNT_IDS=old;if(oldConversations===undefined)delete process.env.PILAE_REPLY_CONVERSATIONS_QUERY;else process.env.PILAE_REPLY_CONVERSATIONS_QUERY=oldConversations;if(oldAnchor===undefined)delete process.env.PILAE_REPLY_HISTORY_ANCHOR_QUERY;else process.env.PILAE_REPLY_HISTORY_ANCHOR_QUERY=oldAnchor;if(oldPrevious===undefined)delete process.env.PILAE_REPLY_HISTORY_PREVIOUS_QUERY;else process.env.PILAE_REPLY_HISTORY_PREVIOUS_QUERY=oldPrevious;f.db.close();}
 });
 
 test('provider handover is disabled explicitly and premium lock refusal is not a successful zero check',async()=>{

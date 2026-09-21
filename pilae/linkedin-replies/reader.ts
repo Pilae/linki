@@ -62,6 +62,20 @@ export function parseMessages(raw: unknown): Page<Message> {
   const {items,resolve,...page}=graph(raw,['messengerMessagesBySyncToken','messengerMessagesByConversation']);
   return {...page,items:items.map(m=>message(m,resolve))};
 }
+/** Older-history queries paginate backwards with prevCursor, not nextCursor. */
+export function parseHistoricalMessages(raw: unknown, rootKey: 'messengerMessagesByAnchorTimestamp' | 'messengerMessagesByConversation'): Page<Message> {
+  const payload=object(raw);if(payload.errors) throw new SyncError('incomplete');
+  const outer=object(payload.data),inner=outer.data ? object(outer.data) : outer;
+  if(inner.errors) throw new SyncError('incomplete');
+  const root=object(inner[rootKey]),metadata=object(root.metadata);
+  if(!Object.hasOwn(metadata,'prevCursor')) throw new SyncError('incomplete');
+  const next=metadata.prevCursor===null ? null : string(metadata.prevCursor);
+  const index=new Map(array(payload.included).map(v=>{const o=object(v);return [string(o.entityUrn),o] as const;}));
+  const resolve=(v:unknown):ObjectValue=>typeof v==='string' ? object(index.get(v)) : object(v);
+  const items=array(root['*elements'] ?? root.elements).map(v=>message(resolve(v),resolve));
+  if(!items.length && next!==null) throw new SyncError('incomplete');
+  return {items,next};
+}
 /** Resolve only the requested profile, never the first unrelated included profile. */
 export function parseProfile(raw: unknown) {
   const payload=object(raw),data=object(payload.data);
@@ -79,8 +93,10 @@ export function parseProfile(raw: unknown) {
 export class SessionReader implements Reader {
   private self: string | null=null;
   private ready=false;
-  constructor(private page: BrowserPage, private queries: {conversations:string;messages:string}) {
-    if(!/^messengerConversations\.[a-f0-9]{32}$/.test(queries.conversations) || !/^messengerMessages\.[a-f0-9]{32}$/.test(queries.messages)) throw new SyncError('incomplete');
+  constructor(private page: BrowserPage, private queries: {conversations:string;historyAnchor:string;historyPrevious:string}) {
+    if(!/^messengerConversations\.[a-f0-9]{32}$/.test(queries.conversations) ||
+      !/^messengerMessages\.[a-f0-9]{32}$/.test(queries.historyAnchor) ||
+      !/^messengerMessages\.[a-f0-9]{32}$/.test(queries.historyPrevious)) throw new SyncError('incomplete');
   }
   private async open() {
     if(this.ready) return;
@@ -148,6 +164,8 @@ export class SessionReader implements Reader {
     return parseConversations(await this.get(`voyagerMessagingGraphQL/graphql?queryId=${this.queries.conversations}&variables=(query:(predicateUnions:List((conversationCategoryPredicate:(category:INBOX)))),count:20,mailboxUrn:${encode(this.self)}${cursor ? ',nextCursor:'+encode(cursor) : ''})`));
   }
   async messages(conversation:string,cursor:string|null) {
-    return parseMessages(await this.get(`voyagerMessagingGraphQL/graphql?queryId=${this.queries.messages}&variables=(conversationUrn:${encode(conversation)}${cursor ? ',nextCursor:'+encode(cursor) : ''})`));
+    if(cursor!==null) return parseHistoricalMessages(await this.get(`voyagerMessagingGraphQL/graphql?queryId=${this.queries.historyPrevious}&variables=(conversationUrn:${encode(conversation)},count:20,prevCursor:${encode(cursor)})`),'messengerMessagesByConversation');
+    const anchor=Date.now()+60_000;
+    return parseHistoricalMessages(await this.get(`voyagerMessagingGraphQL/graphql?queryId=${this.queries.historyAnchor}&variables=(conversationUrn:${encode(conversation)},deliveredAt:${anchor},countBefore:20,countAfter:0)`),'messengerMessagesByAnchorTimestamp');
   }
 }

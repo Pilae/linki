@@ -21,8 +21,12 @@ export async function checkAccount(account: string) {
   const getReader=async()=>{
     if(reader) return reader;
     // Reject missing/unknown query configuration before opening a live page.
-    const queries={conversations:process.env.PILAE_REPLY_CONVERSATIONS_QUERY || '',messages:process.env.PILAE_REPLY_MESSAGES_QUERY || ''};
-    if(!/^messengerConversations\.[a-f0-9]{32}$/.test(queries.conversations) || !/^messengerMessages\.[a-f0-9]{32}$/.test(queries.messages)) {
+    const queries={conversations:process.env.PILAE_REPLY_CONVERSATIONS_QUERY || '',
+      historyAnchor:process.env.PILAE_REPLY_HISTORY_ANCHOR_QUERY || '',
+      historyPrevious:process.env.PILAE_REPLY_HISTORY_PREVIOUS_QUERY || ''};
+    if(!/^messengerConversations\.[a-f0-9]{32}$/.test(queries.conversations) ||
+      !/^messengerMessages\.[a-f0-9]{32}$/.test(queries.historyAnchor) ||
+      !/^messengerMessages\.[a-f0-9]{32}$/.test(queries.historyPrevious)) {
       const {SyncError}=await import('./contracts');throw new SyncError('incomplete');
     }
     page=await getSessionPage(account);
