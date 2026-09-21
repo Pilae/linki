@@ -102,6 +102,8 @@ client for login verification. This addresses one untested difference between
 the successful isolated page handoff and the failed ordinary app path; it is a
 hypothesis, not a proven fix. Three login fixtures, related enrollment,
 acceptance and metrics fixtures, TypeScript, scoped lint and production build
-pass. This iteration has not been installed or tested with a real login. PR #8
-remains the running local image with polling disabled. A future live check must
-be performed by the operator, with password and app approval handled by them.
+pass. A local-only image combining this iteration with PR #8 is installed on
+localhost:3456 with reply polling disabled. It has not been tested with a fresh
+real login; the prior PR #8-only container remains available for rollback. A
+future live check must be performed by the operator, with password and app
+approval handled by them.
