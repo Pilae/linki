@@ -10,8 +10,8 @@ Inspected on 2026-09-21:
 - `lib/linkedin/runner.ts` originally called premium inbox sync only for authenticated accounts with running campaigns, after an early return when there were no active runs. It stopped all unfinished tracks when either target-level reply timestamp existed.
 - `lib/db.ts` contains `targets.last_replied_at`, `targets.messaging_urn`, `accounts.inbox_synced_at`, and the email reply store. Its historical comment describes name-based messaging identity discovery; this extension deliberately does not trust that field. No public LinkedIn message/cursor store was found.
 - `pages/api/inbox/index.ts` reports target timestamps and email reply rows. `thread.ts` fetches IMAP email. Neither is an independently working LinkedIn conversation reader. Pilae events use a separate authenticated route and do not stamp the global target timestamp.
-- `lib/linkedin/session.ts` provides encrypted stored sessions and `getSessionContext(accountId)`, explicitly supporting `ctx.request`. This is the reader's server-side transport. Existing browser fingerprints, storage and account isolation are retained. No alternate cookie store, account connection flow, license bypass, or premium source is introduced.
-- The runtime at localhost:3456 was `pilae-linki:arm64-enrollment`, with only its data directory bind-mounted; it was not rebuilt or restarted. Existing Twenty and adapter containers were not deployed or restarted.
+- `lib/linkedin/session.ts` provides encrypted stored sessions and the serialized `getSessionPage(accountId)`. The reader now opens the authenticated feed and makes bounded same-origin requests inside that page. Existing browser fingerprints, storage and account isolation are retained. No alternate cookie store, account connection flow, license bypass, or premium source is introduced.
+- The runtime at localhost:3456 is a separate login-session test build; this reader change has not been installed there. Existing Twenty and adapter containers were not deployed or restarted.
 
 The public [messaging endpoint reference](https://github.com/vicnaum/linkedin-toolkit/blob/main/references/endpoints.md) informed the experimental GraphQL envelope and cursor design. No implementation was copied. It is third-party evidence, not verification of our account. A bounded authorized capture verified a conversation envelope, top-level participant identities, embedded latest messages, and unquoted CSRF header behavior. Full-thread query variables and historical message pagination remain unverified. See [validation evidence](VALIDATION.md). Missing or changed shapes fail as incomplete instead of reporting an empty inbox. Linki's existing Sustainable Use License remains in force; this work grants no additional hosting rights.
 
@@ -20,7 +20,7 @@ The public [messaging endpoint reference](https://github.com/vicnaum/linkedin-to
 | Module | Responsibility |
 | --- | --- |
 | `contracts.ts` | Reader pages, normalized identities/messages, safe errors, versioned events |
-| `reader.ts` | Read-only server-side session requests and strict response parsing |
+| `reader.ts` | Read-only requests from the account's browser page and strict response parsing |
 | `store.ts` | Namespaced SQLite schema, persistent ownership, expiring leases and fenced writes |
 | `sync.ts` | Account synchronization, durable page checkpoints and recovery |
 | `campaigns.ts` | Exact matching, outbound evidence, events, and run-scoped stop-on-reply |

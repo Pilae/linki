@@ -1,4 +1,4 @@
-import type { BrowserContext } from 'playwright';
+import type { Page as BrowserPage } from 'playwright';
 import { SyncError, type Conversation, type Message, type Page, type Reader } from './contracts';
 
 type ObjectValue = Record<string, unknown>;
@@ -75,29 +75,56 @@ export function parseProfile(raw: unknown) {
   if(!/^[A-Za-z0-9_-]+$/.test(slug)) throw new SyncError('incomplete');
   return {id,profileUrl:'https://www.linkedin.com/in/'+slug};
 }
-/** Server-only context; cookies are attached by Playwright, never serialized to callers. */
+/** Server-only page from Linki's serialized account browser; no session material reaches callers. */
 export class SessionReader implements Reader {
   private self: string | null=null;
-  constructor(private context: BrowserContext, private queries: {conversations:string;messages:string}) {
+  private ready=false;
+  constructor(private page: BrowserPage, private queries: {conversations:string;messages:string}) {
     if(!/^messengerConversations\.[a-f0-9]{32}$/.test(queries.conversations) || !/^messengerMessages\.[a-f0-9]{32}$/.test(queries.messages)) throw new SyncError('incomplete');
   }
+  private async open() {
+    if(this.ready) return;
+    const response=await this.page.goto('https://www.linkedin.com/feed/',{waitUntil:'domcontentloaded',timeout:20_000});
+    const current=new URL(this.page.url());
+    if(!response || response.status()!==200 || current.origin!=='https://www.linkedin.com' || !/^\/feed\/?$/.test(current.pathname)) throw new SyncError('authentication');
+    this.ready=true;
+  }
   private async get(path:string): Promise<unknown> {
-    const cookies=await this.context.cookies('https://www.linkedin.com');
+    await this.open();
+    const cookies=await this.page.context().cookies('https://www.linkedin.com');
     const csrf=cookies.find(c=>c.name==='JSESSIONID')?.value;
     if(!csrf || !cookies.some(c=>c.name==='li_at')) throw new SyncError('authentication');
-    // One bounded attempt; scheduling supplies retry/backoff. Never follow a login redirect.
-    const response=await this.context.request.get('https://www.linkedin.com/voyager/api/'+path,{
-      headers:{'csrf-token':csrf.replace(/^"|"$/g,''),'x-restli-protocol-version':'2.0.0',accept:'application/vnd.linkedin.normalized+json+2.1'},timeout:20_000,maxRedirects:0,
-    });
-    try {
-      const status=response.status();
-      if([301,302,303,307,308,401,403].includes(status)) throw new SyncError('authentication');
-      if(status===429) throw new SyncError('rate_limited');
-      if(status!==200) throw new SyncError('transport');
-      const body=await response.body();
-      if(body.length>8_000_000) throw new SyncError('incomplete');
-      try{return JSON.parse(body.toString());}catch{throw new SyncError('incomplete');}
-    } finally {await response.dispose();}
+    // Run in the same browser page as the authenticated feed. Abort before redirects
+    // or unbounded responses; the scheduler supplies backoff, never an in-page retry.
+    const result=await this.page.evaluate(async ({path,csrf})=>{
+      const controller=new AbortController(),timer=setTimeout(()=>controller.abort(),20_000);
+      try {
+        const response=await fetch('/voyager/api/'+path,{
+          method:'GET',credentials:'same-origin',redirect:'manual',signal:controller.signal,
+          headers:{'csrf-token':csrf,'x-restli-protocol-version':'2.0.0',accept:'application/vnd.linkedin.normalized+json+2.1'},
+        });
+        if(response.type==='opaqueredirect' || response.redirected || response.url && new URL(response.url).origin!==location.origin) return {status:302,body:null};
+        const declared=Number(response.headers.get('content-length'));
+        if(Number.isFinite(declared) && declared>8_000_000) return {status:response.status,body:null};
+        if(!response.body) return {status:response.status,body:null};
+        const chunks:Uint8Array[]=[],reader=response.body.getReader();let bytes=0;
+        while(true) {
+          const next=await reader.read();if(next.done)break;
+          bytes+=next.value.byteLength;
+          if(bytes>8_000_000) {await reader.cancel();return {status:response.status,body:null};}
+          chunks.push(next.value);
+        }
+        const joined=new Uint8Array(bytes);let offset=0;
+        for(const chunk of chunks){joined.set(chunk,offset);offset+=chunk.byteLength;}
+        const body=new TextDecoder().decode(joined);
+        return {status:response.status,body};
+      } finally {clearTimeout(timer);}
+    },{path,csrf:csrf.replace(/^"|"$/g,'')});
+    if([0,301,302,303,307,308,401,403].includes(result.status)) throw new SyncError('authentication');
+    if(result.status===429) throw new SyncError('rate_limited');
+    if(result.status!==200) throw new SyncError('transport');
+    if(result.body===null) throw new SyncError('incomplete');
+    try{return JSON.parse(result.body);}catch{throw new SyncError('incomplete');}
   }
   async identity() {
     const payload=object(await this.get('me')), data=object(payload.data);

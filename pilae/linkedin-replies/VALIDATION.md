@@ -26,6 +26,10 @@ The earlier GraphQL capture contains only the latest inbound message. Later, an 
 
 The local Linki login patch accepted a fresh operator login, but the saved session was rejected two minutes later with a 302/401 response. The authenticated Chrome read used a separate browser session; it does not validate Linki's server-side reader. The campaign remains completed and the existing application reply state is unchanged.
 
+## Browser-page reader follow-up
+
+PR #8 now uses a serialized Linki account page, verifies that it reached the signed-in feed, and performs bounded same-origin reads from that page. This is intended to test the normal Linki browser context rather than Playwright's separate request client. The updated reader passed all 26 synthetic reply tests, TypeScript, scoped lint and a production build. It has not been installed on the local server or exercised against the real account. The current local server still runs the separate login-session build. The previously observed message-history query and its terminal pagination remain unverified, so a manual check cannot yet establish complete coverage. No real-account check, campaign restart, message, or invitation occurred during this follow-up.
+
 ## Not verified
 
 Full-thread query variables, historical pagination and terminal cursors remain unverified; message query configuration is deliberately not enabled. Durable Linki session restoration, the mailbox identity endpoint through the final reader, internal-link profile resolution through that reader, account-scale timing, and stop-on-reply behavior during actual outreach still need live validation. Persisted sync tokens are evidence checkpoints only: incremental replay semantics are not yet implemented or claimed. A parsed latest-message snapshot is not a successful complete inbox check. Unsupported scopes and conservative attribution misses are described in the architecture guide. Premium internals are neither available nor tested.

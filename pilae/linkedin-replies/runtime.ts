@@ -1,5 +1,6 @@
 import { getDb } from '@/lib/db';
-import { getSessionContext } from '@/lib/linkedin/session';
+import { getSessionPage } from '@/lib/linkedin/session';
+import type { Page } from 'playwright';
 import { premium } from '@/lib/premium';
 import { SessionReader } from './reader';
 import { synchronize } from './sync';
@@ -16,11 +17,18 @@ export async function checkAccount(account: string) {
   const a=db.prepare('SELECT is_authenticated FROM accounts WHERE id=?').get(account) as {is_authenticated:number}|undefined;
   if(!a) return {disabled:true,reason:'unknown_account'};
   // Lazy context creation happens inside synchronization so failures get durable health status.
-  let reader: SessionReader;
-  const getReader=async()=>reader ??= new SessionReader(await getSessionContext(account),{
-    conversations:process.env.PILAE_REPLY_CONVERSATIONS_QUERY || '',messages:process.env.PILAE_REPLY_MESSAGES_QUERY || '',
-  });
-  return synchronize(db,account,{
+  let reader: SessionReader, page: Page|undefined;
+  const getReader=async()=>{
+    if(reader) return reader;
+    // Reject missing/unknown query configuration before opening a live page.
+    const queries={conversations:process.env.PILAE_REPLY_CONVERSATIONS_QUERY || '',messages:process.env.PILAE_REPLY_MESSAGES_QUERY || ''};
+    if(!/^messengerConversations\.[a-f0-9]{32}$/.test(queries.conversations) || !/^messengerMessages\.[a-f0-9]{32}$/.test(queries.messages)) {
+      const {SyncError}=await import('./contracts');throw new SyncError('incomplete');
+    }
+    page=await getSessionPage(account);
+    return reader=new SessionReader(page,queries);
+  };
+  try { return await synchronize(db,account,{
     identity:async()=>{
       if(!a.is_authenticated) {const {SyncError}=await import('./contracts');throw new SyncError('authentication');}
       return (await getReader()).identity();
@@ -28,7 +36,7 @@ export async function checkAccount(account: string) {
     conversations:async c=>(await getReader()).conversations(c),
     messages:async(c,p)=>(await getReader()).messages(c,p),
     resolveProfile:async url=>(await getReader()).resolveProfile(url),
-  });
+  }); } finally { await page?.close(); }
 }
 /** Premium retains its own implementation. Both entrypoints claim the same persistent account owner/lease. */
 export async function syncPremium(account:string): Promise<number> {
