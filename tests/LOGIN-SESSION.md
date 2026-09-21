@@ -55,7 +55,11 @@ session and passed an immediate identity check, but a later independent restore
 returned 302 followed by 401. A later bounded diagnostic let the feed settle
 and confirmed identity both after login-context closure and in a fresh browser
 process (200 in all four stages). This supports waiting and validating a fresh
-browser before saving. Whether the corrected application persists a reusable
-session still requires one operator-run login and subsequent read-only check.
-Full reply attribution remains blocked; this patch does not install the reply
-extension.
+browser before saving. A subsequent operator login on the revised local image passed the immediate
+validation and was saved at 13:04 UTC, but a read-only identity check at 13:06
+returned 302 followed by 401. Durable session restoration is therefore still
+unresolved; the login UI's connected state is insufficient evidence. The exact
+reason LinkedIn stops accepting the saved session has not been established.
+This patch does not install the reply extension. The specific reply was verified
+separately through the operator's browser and replayed in an isolated database,
+but automatic Linki polling remains blocked.
