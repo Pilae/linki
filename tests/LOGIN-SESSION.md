@@ -47,6 +47,12 @@ or restarted. The login-only fix was installed on the local sandbox using its
 existing image and browser version; its previous container is retained for
 rollback. Production was not changed.
 
-The corrected normal login flow still needs a fresh operator login and a
-subsequent session-restoration check. Full reply attribution remains a separate
-validation task; this login patch does not install the reply extension.
+A subsequent operator login on the corrected local server saved a fresh session
+and passed the new identity check, but a later independent restoration returned
+302 followed by 401. Removing the Sales Navigator visit is therefore insufficient
+to establish durable authentication. The initial diagnostic established a temporal
+failure after that visit, not its exclusive causal role. A follow-up diagnostic
+without Sales Navigator separates page settling, context closure, and browser
+restart. The remaining cause is unconfirmed; live validation is not complete.
+Full reply attribution remains blocked; this patch does not install the reply
+extension.
