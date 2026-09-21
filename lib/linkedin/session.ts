@@ -293,28 +293,38 @@ function sweepPendingLogins(): void {
   }
 }
 
-/**
- * Warm the freshly-authenticated session by loading Sales Navigator once, THEN
- * persist. The bare login POST lands on /feed and only mints the ~11 core
- * LinkedIn cookies — it does NOT yet include the Sales Nav SEAT cookie
- * (li_ep_auth_context) nor the secondary auth tokens (li_a, liap) and
- * localStorage. Those are only issued once the browser actually enters Sales
- * Navigator. Without the seat cookie every Sales Nav API call returns nothing
- * ("no intercept after 15s" → import fails → account wrongly flagged
- * needs-reauth). So we navigate to /sales/ and wait for it to settle before
- * calling storageState(), capturing the FULL session the runner needs.
- * Best-effort: if the account has no Sales Nav seat the nav simply doesn't add
- * the seat cookie — the rest of the (regular-LinkedIn) session is still saved.
+/** Verify the ordinary LinkedIn session before persisting it as authenticated.
+ * A Sales Navigator visit can invalidate a regular account's fresh session.
+ * Product-specific initialization belongs to an explicitly requested product flow.
  */
-async function persistLogin(accountId: string, ctx: BrowserContext, page?: Page): Promise<void> {
-  if (page) {
+async function persistLogin(accountId: string, ctx: BrowserContext): Promise<void> {
+  const message = "LinkedIn did not confirm a usable session. Please sign in again and complete verification.";
+  const cookies = await ctx.cookies("https://www.linkedin.com");
+  const csrf = cookies.find(cookie => cookie.name === "JSESSIONID")?.value;
+  if (!csrf || !cookies.some(cookie => cookie.name === "li_at")) throw new Error(message);
+  try {
+    const response = await ctx.request.get("https://www.linkedin.com/voyager/api/me", {
+      headers: {
+        "csrf-token": csrf.replace(/^"|"$/g, ""),
+        "x-restli-protocol-version": "2.0.0",
+        accept: "application/vnd.linkedin.normalized+json+2.1",
+      },
+      timeout: 15_000,
+      maxRedirects: 0,
+    });
     try {
-      await page.goto("https://www.linkedin.com/sales/home", { waitUntil: "domcontentloaded", timeout: 30_000 });
-      // Let Sales Nav's bootstrap requests fire so li_ep_auth_context is set.
-      await page.waitForTimeout(4_000);
-    } catch {
-      // Non-fatal — a missing seat / slow load must not fail the whole login.
+      if (response.status() !== 200) throw new Error(message);
+      const body = await response.body();
+      if (body.length > 1_000_000) throw new Error(message);
+      const payload = JSON.parse(body.toString());
+      const identity = payload?.data?.["*miniProfile"];
+      if (payload?.errors || typeof identity !== "string" || !/^urn:li:fs_miniProfile:[A-Za-z0-9_-]+$/.test(identity)) throw new Error(message);
+    } finally {
+      await response.dispose();
     }
+  } catch {
+    // Never return transport errors containing URLs, headers or session material.
+    throw new Error(message);
   }
   const db = getDb();
   const state = await ctx.storageState();
@@ -322,7 +332,6 @@ async function persistLogin(accountId: string, ctx: BrowserContext, page?: Page)
     encryptSecret(JSON.stringify(state)),
     accountId
   );
-  // Drop any stale runtime context so the runner reloads the fresh cookies.
   await closeSession(accountId);
 }
 
@@ -417,7 +426,7 @@ export async function startHeadlessLogin(
     const result = await classifyLoginState(page);
     console.log(`[login] start account=${accountId} -> ${result.status}${"kind" in result ? "/" + result.kind : ""} url=${page.url()}`);
     if (result.status === "authenticated") {
-      await persistLogin(accountId, ctx, page);
+      await persistLogin(accountId, ctx);
       await ctx.close();
       return result;
     }
@@ -451,7 +460,7 @@ export async function submitLoginChallenge(accountId: string, code: string): Pro
     const result = await classifyLoginState(page);
     console.log(`[login] verify account=${accountId} -> ${result.status}${"kind" in result ? "/" + result.kind : ""} url=${page.url()}`);
     if (result.status === "authenticated") {
-      await persistLogin(accountId, ctx, page);
+      await persistLogin(accountId, ctx);
       await clearPendingLogin(accountId);
       return result;
     }
@@ -492,7 +501,7 @@ export async function awaitLoginApproval(accountId: string): Promise<LoginResult
     const result = await classifyLoginState(page);
     console.log(`[login] await account=${accountId} -> ${result.status}${"kind" in result ? "/" + result.kind : ""} url=${page.url()}`);
     if (result.status === "authenticated") {
-      await persistLogin(accountId, ctx, page);
+      await persistLogin(accountId, ctx);
       await clearPendingLogin(accountId);
       return result;
     }
