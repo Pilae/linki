@@ -331,6 +331,10 @@ async function persistLogin(accountId: string, ctx: BrowserContext, page: Page):
     await page.waitForLoadState("networkidle", { timeout: 5_000 }).catch(() => {});
     const identity = await loginIdentity(ctx);
     const state = await ctx.storageState();
+    // Do not reuse the same LinkedIn session in two live contexts at once.
+    // Close the login context before verifying the snapshot in a new browser.
+    await closeSession(accountId);
+    await ctx.close();
     probeBrowser = await chromium.launch({headless:true,executablePath:CHROMIUM_PATH,args:LAUNCH_ARGS});
     probeContext = await probeBrowser.newContext(contextOptions(state));
     if (await loginIdentity(probeContext) !== identity) throw new Error("unverified_session");
@@ -340,7 +344,6 @@ async function persistLogin(accountId: string, ctx: BrowserContext, page: Page):
     db.prepare("UPDATE accounts SET cookies_json = ?, is_authenticated = 1 WHERE id = ?").run(
       encryptSecret(JSON.stringify(verifiedState)), accountId
     );
-    await closeSession(accountId);
   } catch {
     // Never return transport errors containing URLs, headers or session material.
     throw new Error(message);

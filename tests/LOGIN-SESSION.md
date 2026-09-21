@@ -9,10 +9,11 @@ isolates that navigation as the trigger in this observed case; it does not
 establish that every account is affected.
 
 The login persistence function now waits briefly for feed bootstrap, verifies the
-ordinary authenticated identity endpoint, snapshots the session, and checks the
-same identity in a fresh browser process before saving its cookies. It does not
-visit Sales Navigator. Missing cookies,
-redirects, HTTP failures and malformed identity responses reject persistence.
+ordinary authenticated identity endpoint, snapshots the session, closes the login
+context, and checks the same identity in a fresh browser process before saving
+its cookies. The two contexts in this flow do not use the account simultaneously.
+It does not visit Sales Navigator. Missing cookies, redirects, HTTP failures and
+malformed identity responses reject persistence.
 Requests have a 15-second timeout, no redirects and no immediate retries. Errors
 shown to callers contain no request URLs or session values. Stored credentials
 are not overwritten on failed verification. This changes password/OTP/app-approval
@@ -32,8 +33,9 @@ npx tsc --noEmit --incremental false
 npx eslint lib/linkedin/session.ts
 ```
 
-The regression tests verify the feed wait, restored identity check and refusal
-to save rejected or mismatched sessions. The earlier tests reproduced the
+The regression tests verify the feed wait, serial context closure before browser
+launch, restored identity check and refusal to save rejected or mismatched
+sessions. The earlier tests reproduced the
 Sales Navigator failure; a later authorized diagnostic showed that a settled
 session also survived context closure and fresh-browser restoration.
 The existing enrollment tests, acceptance/metrics fixtures and 12 network-disabled
@@ -57,9 +59,24 @@ and confirmed identity both after login-context closure and in a fresh browser
 process (200 in all four stages). This supports waiting and validating a fresh
 browser before saving. A subsequent operator login on the revised local image passed the immediate
 validation and was saved at 13:04 UTC, but a read-only identity check at 13:06
-returned 302 followed by 401. Durable session restoration is therefore still
-unresolved; the login UI's connected state is insufficient evidence. The exact
-reason LinkedIn stops accepting the saved session has not been established.
+returned 302 followed by 401. A later timed check opened two contexts for the
+same saved session: both passed immediately, then both redirected at 30 seconds;
+a page-first check reached login. This test could itself have affected the
+session, so it does not isolate the cause.
+
+Two subsequent operator-run, read-only diagnostics kept one context at a time.
+The first remained on the feed at 0, 30 and 120 seconds. The second saved state
+in memory, closed the original browser, then restored it into a new browser;
+the restored feed remained authenticated at 0, 30 and 120 seconds. Neither
+diagnostic wrote to the application database, sent outreach or ran a campaign.
+The overlap in the previous login verification is therefore a leading cause to
+test, not a confirmed LinkedIn policy or proof that the revised Linki flow works.
+The revised local app passed its production build and was installed only in the
+localhost test container, with the previous container retained for rollback.
+The first read-only watcher timed out without a new operator login and made no
+LinkedIn requests. The ordinary Linki login path still needs an operator login
+followed by an independent check after its verification browser closes. Until
+then, its connected flag is insufficient evidence of a durable session.
 This patch does not install the reply extension. The specific reply was verified
 separately through the operator's browser and replayed in an isolated database,
 but automatic Linki polling remains blocked.

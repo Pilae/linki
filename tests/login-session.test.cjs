@@ -8,22 +8,22 @@ function fixture({originalStatus=200,restoredStatus=200,restoredIdentity='urn:li
  const browser={newContext:async options=>{assert.equal(options.storageState.cookies.length,2);return restored;},close:async()=>{closures.push('browser')}};
  const source=fs.readFileSync(process.env.LOGIN_SESSION_SOURCE || require.resolve('../lib/linkedin/session.ts'),'utf8')+'\nexport {persistLogin};';
  const m=new Module(__filename);
- m.require=name=>name==='playwright-extra'?{chromium:{use(){},launch:async()=>browser}}:name==='puppeteer-extra-plugin-stealth'?()=>({}):name==='@/lib/db'?{getDb:()=>db}:name==='@/lib/crypto'?{encryptSecret:s=>'encrypted:'+s}:name==='./login-signals'?{}:require(name);
+ m.require=name=>name==='playwright-extra'?{chromium:{use(){},launch:async()=>{calls.push('launch');return browser}}}:name==='puppeteer-extra-plugin-stealth'?()=>({}):name==='@/lib/db'?{getDb:()=>db}:name==='@/lib/crypto'?{encryptSecret:s=>'encrypted:'+s}:name==='./login-signals'?{}:require(name);
  m._compile(ts.transpileModule(source,{compilerOptions:{target:ts.ScriptTarget.ES2022,module:ts.ModuleKind.CommonJS,esModuleInterop:true}}).outputText,__filename);
- const ctx={cookies:async()=>cookies,storageState:async()=>({cookies,origins:[]}),request:{get:async(url,options)=>{
+ const ctx={cookies:async()=>cookies,storageState:async()=>({cookies,origins:[]}),close:async()=>{calls.push('login_closed');closures.push('login')},request:{get:async(url,options)=>{
   calls.push({url,options,settled});if(transport)throw Error('private-url-and-secret');return response(originalStatus,'urn:li:fs_miniProfile:fixture');
  }}};
  const page={waitForLoadState:async()=>{settled=true;}};
  return {persist:m.exports.persistLogin,ctx,page,writes,calls,closures};
 }
-test('waits for feed, verifies the same identity in a new browser, then saves its cookies',async()=>{
+test('closes the login context before verifying the same identity in a new browser',async()=>{
  const f=fixture();await f.persist('account',f.ctx,f.page);
- assert.deepEqual(f.calls.map(c=>typeof c==='string'?c:c.settled),[true,'restored']);
+ assert.deepEqual(f.calls.map(c=>typeof c==='string'?c:c.settled),[true,'login_closed','launch','restored']);
  assert.equal(f.writes.length,1);assert.equal(JSON.parse(f.writes[0][0].slice('encrypted:'.length)).cookies.length,2);
  assert.equal(f.calls[0].url,'https://www.linkedin.com/voyager/api/me');
  assert.equal(f.calls[0].options.maxRedirects,0);assert.equal(f.calls[0].options.timeout,15000);
  assert.equal(f.calls[0].options.headers['csrf-token'],'ajax:fixture');
- assert.ok(f.closures.includes('context'));assert.ok(f.closures.includes('browser'));
+ assert.ok(f.closures.includes('login'));assert.ok(f.closures.includes('context'));assert.ok(f.closures.includes('browser'));
 });
 test('failed restored check cannot mark an account connected',async()=>{
  for(const options of [{originalStatus:302},{originalStatus:401},{restoredStatus:302},{restoredStatus:401},{restoredStatus:429},{restoredIdentity:'urn:li:fs_miniProfile:someoneelse'},{missingCookie:true},{transport:true}]){
