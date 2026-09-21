@@ -35,13 +35,13 @@ test('closes the login context before verifying the same identity in a new brows
  assert.ok(f.closures.includes('login'));assert.ok(f.closures.includes('context'));assert.ok(f.closures.includes('browser'));
 });
 test('failed restored check cannot mark an account connected',async()=>{
- for(const [options,stage] of [[{originalStatus:302},'original_page'],[{originalStatus:401},'original_page'],[{restoredStatus:302},'restored_page'],[{restoredStatus:401},'restored_page'],[{restoredStatus:429},'restored_page'],[{restoredIdentity:'urn:li:fs_miniProfile:someoneelse'},'restored_page'],[{missingCookie:true},'original_page'],[{transport:true},'original_page']]){
+ for(const [options,stage,reason] of [[{originalStatus:302},'original_page','redirect'],[{originalStatus:401},'original_page','unauthorized'],[{restoredStatus:302},'restored_page','redirect'],[{restoredStatus:401},'restored_page','unauthorized'],[{restoredStatus:429},'restored_page','rate_limited'],[{restoredIdentity:'urn:li:fs_miniProfile:someoneelse'},'restored_page','mismatch'],[{missingCookie:true},'original_page','session_cookie'],[{transport:true},'original_page','request']]){
   const f=fixture(options),warnings=[],previous=console.warn;
   console.warn=(...args)=>warnings.push(args.join(' '));
   try {
    await assert.rejects(f.persist('account',f.ctx,f.page),e=>e.message.includes('did not confirm')&&!e.message.includes('private-url'));
   } finally {console.warn=previous;}
-  assert.deepEqual(warnings,[`[login] reusable session verification failed at ${stage}`]);
+  assert.deepEqual(warnings,[`[login] reusable session verification failed at ${stage}: ${reason}`]);
   assert.equal(f.writes.length,0);
  }
 });

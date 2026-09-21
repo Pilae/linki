@@ -296,17 +296,27 @@ function sweepPendingLogins(): void {
 /** Save a login only after its settled session works in a fresh browser.
  * The URL reaching /feed/ does not mean its cookies are ready to persist.
  */
+type LoginIdentityFailure = "navigation" | "feed_path" | "csrf_cookie" | "session_cookie" |
+  "request" | "redirect" | "unauthorized" | "rate_limited" | "http_status" |
+  "empty_body" | "invalid_json" | "identity" | "mismatch";
+class LoginIdentityError extends Error {
+  constructor(readonly reason: LoginIdentityFailure) { super("unverified_session"); }
+}
+function rejectIdentity(reason: LoginIdentityFailure): never { throw new LoginIdentityError(reason); }
+
 async function loginIdentity(page: Page, navigate = false): Promise<string> {
   if (navigate) {
     const response = await page.goto("https://www.linkedin.com/feed/", { waitUntil: "domcontentloaded", timeout: 20_000 });
-    if (!response || response.status() !== 200) throw new Error("unverified_session");
+    if (!response || response.status() !== 200) rejectIdentity("navigation");
   }
   const location = new URL(page.url());
-  if (location.origin !== "https://www.linkedin.com" || !/^\/feed\/?$/.test(location.pathname)) throw new Error("unverified_session");
+  if (location.origin !== "https://www.linkedin.com" || !/^\/feed\/?$/.test(location.pathname)) rejectIdentity("feed_path");
   const cookies = await page.context().cookies("https://www.linkedin.com");
   const csrf = cookies.find(cookie => cookie.name === "JSESSIONID")?.value;
-  if (!csrf || !cookies.some(cookie => cookie.name === "li_at")) throw new Error("unverified_session");
-  const result = await page.evaluate(async token => {
+  if (!csrf) rejectIdentity("csrf_cookie");
+  if (!cookies.some(cookie => cookie.name === "li_at")) rejectIdentity("session_cookie");
+  let result: {status: number; body: string | null};
+  try { result = await page.evaluate(async token => {
     const controller = new AbortController(), timer = setTimeout(() => controller.abort(), 15_000);
     try {
       const response = await fetch("/voyager/api/me", {
@@ -327,11 +337,16 @@ async function loginIdentity(page: Page, navigate = false): Promise<string> {
       for (const chunk of chunks) { joined.set(chunk, offset); offset += chunk.byteLength; }
       return {status: response.status, body: new TextDecoder().decode(joined)};
     } finally { clearTimeout(timer); }
-  }, csrf.replace(/^"|"$/g, ""));
-  if (result.status !== 200 || !result.body) throw new Error("unverified_session");
-  const payload = JSON.parse(result.body);
+  }, csrf.replace(/^"|"$/g, "")); } catch { rejectIdentity("request"); }
+  if (result.status === 302) rejectIdentity("redirect");
+  if (result.status === 401 || result.status === 403) rejectIdentity("unauthorized");
+  if (result.status === 429) rejectIdentity("rate_limited");
+  if (result.status !== 200) rejectIdentity("http_status");
+  if (!result.body) rejectIdentity("empty_body");
+  let payload: {data?: Record<string, unknown>; errors?: unknown};
+  try { payload = JSON.parse(result.body); } catch { rejectIdentity("invalid_json"); }
   const identity = payload?.data?.["*miniProfile"];
-  if (payload?.errors || typeof identity !== "string" || !/^urn:li:fs_miniProfile:[A-Za-z0-9_-]+$/.test(identity)) throw new Error("unverified_session");
+  if (payload?.errors || typeof identity !== "string" || !/^urn:li:fs_miniProfile:[A-Za-z0-9_-]+$/.test(identity)) rejectIdentity("identity");
   return identity;
 }
 
@@ -355,7 +370,7 @@ async function persistLogin(accountId: string, ctx: BrowserContext, page: Page):
     probeContext = await probeBrowser.newContext(contextOptions(state));
     const probePage = await probeContext.newPage();
     stage = "restored_page";
-    if (await loginIdentity(probePage, true) !== identity) throw new Error("unverified_session");
+    if (await loginIdentity(probePage, true) !== identity) rejectIdentity("mismatch");
     // Keep cookies refreshed by the validation request, if any.
     const verifiedState = await probeContext.storageState();
     stage = "save";
@@ -363,9 +378,10 @@ async function persistLogin(accountId: string, ctx: BrowserContext, page: Page):
     db.prepare("UPDATE accounts SET cookies_json = ?, is_authenticated = 1 WHERE id = ?").run(
       encryptSecret(JSON.stringify(verifiedState)), accountId
     );
-  } catch {
+  } catch (error) {
     // Never return transport errors containing URLs, headers or session material.
-    console.warn(`[login] reusable session verification failed at ${stage}`);
+    const reason = error instanceof LoginIdentityError ? error.reason : "internal_error";
+    console.warn(`[login] reusable session verification failed at ${stage}: ${reason}`);
     throw new Error(message);
   } finally {
     await probeContext?.close().catch(() => {});

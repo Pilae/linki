@@ -110,10 +110,12 @@ approval handled by them.
 
 The next operator attempts reached the feed after app approval, but Linki
 returned its reusable-session error. The same saved session then redirected to
-LinkedIn login before the Quentin message query ran. This does not establish
-which of the original-page check, snapshot, or restored-page check failed: the
-error handler previously collapsed all of them into one message. The login
-path now logs only a fixed failure stage, without account identifiers, URLs,
-response bodies, cookies, or credentials. The browser still receives the same
-generic error. A subsequent operator login is needed to observe the stage;
-the reply query and pagination remain unverified.
+LinkedIn login before the Quentin message query ran. A fixed-stage log on the
+next operator attempt showed failure on the original feed page, before a
+snapshot or fresh-browser restore. The page path was the feed; the old log
+does not distinguish a missing cookie, rejected identity request, malformed
+response, or other check failure. The login path now logs a fixed reason code
+as well as the stage, without account identifiers, URLs, response bodies,
+cookies, or credentials. The browser still receives the same generic error.
+A subsequent operator login is needed to observe the reason; the reply query
+and pagination remain unverified.
