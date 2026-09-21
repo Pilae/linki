@@ -100,6 +100,7 @@ test('sync snapshots retain messages and checkpoints; coverage gap survives an i
  f.reader.conversations=async()=>({items:[f.c],next:null,coverage:'partial',syncToken:'snapshot'});
  await synchronize(f.db,'a',f.reader,()=>now,1);
  assert.equal(f.db.prepare('SELECT count(*) AS n FROM pilae_reply_messages').get().n,1);
+ assert.equal(f.events().length,0);
  assert.equal(state(f.db,'a').cursor,null);assert.equal(state(f.db,'a').coverage_gap,1);
  assert.equal(f.db.prepare('SELECT sync_token FROM pilae_reply_checkpoints').get().sync_token,'snapshot');
  f.reader.messages=async()=>({items:[f.out],next:null});
@@ -107,6 +108,16 @@ test('sync snapshots retain messages and checkpoints; coverage gap survives an i
  assert.equal(f.events().length,1);assert.equal(state(f.db,'a').last_success,null);assert.equal(state(f.db,'a').incomplete,1);
  assert.equal(state(f.db,'a').error,'incomplete');
  await synchronize(f.db,'a',f.reader,()=>now+120000);assert.equal(f.events().length,1);f.db.close();
+});
+test('an embedded inbound snapshot cannot create a reply when conversation history is unavailable',async()=>{
+ const f=fixture();f.c.messages=[f.inbound];
+ f.reader.conversations=async()=>({items:[f.c],next:null,coverage:'partial',syncToken:'snapshot'});
+ f.reader.messages=async()=>{throw new SyncError('incomplete');};
+ await synchronize(f.db,'a',f.reader,()=>now);
+ assert.equal(f.db.prepare('SELECT count(*) AS n FROM pilae_reply_messages').get().n,1);
+ assert.equal(f.events().length,0);
+ const s=state(f.db,'a');assert.equal(s.incomplete,1);assert.equal(s.error,'incomplete');assert.equal(s.last_success,null);
+ f.db.close();
 });
 test('internal profile URL resolution must match participant identity before attribution',async()=>{
  for(const mismatch of [false,true]) {
