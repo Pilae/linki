@@ -293,37 +293,100 @@ function sweepPendingLogins(): void {
   }
 }
 
-/**
- * Warm the freshly-authenticated session by loading Sales Navigator once, THEN
- * persist. The bare login POST lands on /feed and only mints the ~11 core
- * LinkedIn cookies — it does NOT yet include the Sales Nav SEAT cookie
- * (li_ep_auth_context) nor the secondary auth tokens (li_a, liap) and
- * localStorage. Those are only issued once the browser actually enters Sales
- * Navigator. Without the seat cookie every Sales Nav API call returns nothing
- * ("no intercept after 15s" → import fails → account wrongly flagged
- * needs-reauth). So we navigate to /sales/ and wait for it to settle before
- * calling storageState(), capturing the FULL session the runner needs.
- * Best-effort: if the account has no Sales Nav seat the nav simply doesn't add
- * the seat cookie — the rest of the (regular-LinkedIn) session is still saved.
+/** Save a login only after its settled session works in a fresh browser.
+ * The URL reaching /feed/ does not mean its cookies are ready to persist.
  */
-async function persistLogin(accountId: string, ctx: BrowserContext, page?: Page): Promise<void> {
-  if (page) {
-    try {
-      await page.goto("https://www.linkedin.com/sales/home", { waitUntil: "domcontentloaded", timeout: 30_000 });
-      // Let Sales Nav's bootstrap requests fire so li_ep_auth_context is set.
-      await page.waitForTimeout(4_000);
-    } catch {
-      // Non-fatal — a missing seat / slow load must not fail the whole login.
-    }
+type LoginIdentityFailure = "navigation" | "feed_path" | "csrf_cookie" | "session_cookie" |
+  "request" | "redirect" | "unauthorized" | "rate_limited" | "http_status" |
+  "empty_body" | "invalid_json" | "identity" | "mismatch";
+class LoginIdentityError extends Error {
+  constructor(readonly reason: LoginIdentityFailure) { super("unverified_session"); }
+}
+function rejectIdentity(reason: LoginIdentityFailure): never { throw new LoginIdentityError(reason); }
+
+async function loginIdentity(page: Page, navigate = false): Promise<string> {
+  if (navigate) {
+    const response = await page.goto("https://www.linkedin.com/feed/", { waitUntil: "domcontentloaded", timeout: 20_000 });
+    if (!response || response.status() !== 200) rejectIdentity("navigation");
   }
-  const db = getDb();
-  const state = await ctx.storageState();
-  db.prepare("UPDATE accounts SET cookies_json = ?, is_authenticated = 1 WHERE id = ?").run(
-    encryptSecret(JSON.stringify(state)),
-    accountId
-  );
-  // Drop any stale runtime context so the runner reloads the fresh cookies.
-  await closeSession(accountId);
+  const pageLocation = new URL(page.url());
+  if (pageLocation.origin !== "https://www.linkedin.com" || !/^\/feed\/?$/.test(pageLocation.pathname)) rejectIdentity("feed_path");
+  const cookies = await page.context().cookies("https://www.linkedin.com");
+  const csrf = cookies.find(cookie => cookie.name === "JSESSIONID")?.value;
+  if (!csrf) rejectIdentity("csrf_cookie");
+  if (!cookies.some(cookie => cookie.name === "li_at")) rejectIdentity("session_cookie");
+  let result: {status: number; body: string | null};
+  try { result = await page.evaluate(async token => {
+    const controller = new AbortController(), timer = setTimeout(() => controller.abort(), 15_000);
+    try {
+      const response = await fetch("/voyager/api/me", {
+        method: "GET", credentials: "same-origin", redirect: "manual", signal: controller.signal,
+        headers: {"csrf-token": token, "x-restli-protocol-version": "2.0.0", accept: "application/vnd.linkedin.normalized+json+2.1"},
+      });
+      if (response.type === "opaqueredirect" || response.redirected || response.url && new URL(response.url).origin !== globalThis.location.origin) return {status: 302, body: null};
+      const declared = Number(response.headers.get("content-length"));
+      if (Number.isFinite(declared) && declared > 1_000_000 || !response.body) return {status: response.status, body: null};
+      const reader = response.body.getReader(), chunks: Uint8Array[] = []; let bytes = 0;
+      while (true) {
+        const next = await reader.read(); if (next.done) break;
+        bytes += next.value.byteLength;
+        if (bytes > 1_000_000) { await reader.cancel(); return {status: response.status, body: null}; }
+        chunks.push(next.value);
+      }
+      const joined = new Uint8Array(bytes); let offset = 0;
+      for (const chunk of chunks) { joined.set(chunk, offset); offset += chunk.byteLength; }
+      return {status: response.status, body: new TextDecoder().decode(joined)};
+    } finally { clearTimeout(timer); }
+  }, csrf.replace(/^"|"$/g, "")); } catch { rejectIdentity("request"); }
+  if (result.status === 302) rejectIdentity("redirect");
+  if (result.status === 401 || result.status === 403) rejectIdentity("unauthorized");
+  if (result.status === 429) rejectIdentity("rate_limited");
+  if (result.status !== 200) rejectIdentity("http_status");
+  if (!result.body) rejectIdentity("empty_body");
+  let payload: {data?: Record<string, unknown>; errors?: unknown};
+  try { payload = JSON.parse(result.body); } catch { rejectIdentity("invalid_json"); }
+  const identity = payload?.data?.["*miniProfile"];
+  if (payload?.errors || typeof identity !== "string" || !/^urn:li:fs_miniProfile:[A-Za-z0-9_-]+$/.test(identity)) rejectIdentity("identity");
+  return identity;
+}
+
+async function persistLogin(accountId: string, ctx: BrowserContext, page: Page): Promise<void> {
+  const message = "LinkedIn did not confirm a reusable session. Please sign in again and complete verification.";
+  let probeBrowser: Browser | null = null;
+  let probeContext: BrowserContext | null = null;
+  let stage: "original_page" | "snapshot" | "restore" | "restored_page" | "save" = "original_page";
+  try {
+    // A short bounded wait lets feed bootstrap finish setting session cookies.
+    await page.waitForLoadState("networkidle", { timeout: 5_000 }).catch(() => {});
+    const identity = await loginIdentity(page);
+    stage = "snapshot";
+    const state = await ctx.storageState();
+    // Do not reuse the same LinkedIn session in two live contexts at once.
+    // Close the login context before verifying the snapshot in a new browser.
+    await closeSession(accountId);
+    await ctx.close();
+    stage = "restore";
+    probeBrowser = await chromium.launch({headless:true,executablePath:CHROMIUM_PATH,args:LAUNCH_ARGS});
+    probeContext = await probeBrowser.newContext(contextOptions(state));
+    const probePage = await probeContext.newPage();
+    stage = "restored_page";
+    if (await loginIdentity(probePage, true) !== identity) rejectIdentity("mismatch");
+    // Keep cookies refreshed by the validation request, if any.
+    const verifiedState = await probeContext.storageState();
+    stage = "save";
+    const db = getDb();
+    db.prepare("UPDATE accounts SET cookies_json = ?, is_authenticated = 1 WHERE id = ?").run(
+      encryptSecret(JSON.stringify(verifiedState)), accountId
+    );
+  } catch (error) {
+    // Never return transport errors containing URLs, headers or session material.
+    const reason = error instanceof LoginIdentityError ? error.reason : "internal_error";
+    console.warn(`[login] reusable session verification failed at ${stage}: ${reason}`);
+    throw new Error(message);
+  } finally {
+    await probeContext?.close().catch(() => {});
+    await probeBrowser?.close().catch(() => {});
+  }
 }
 
 /**
