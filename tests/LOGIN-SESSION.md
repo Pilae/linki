@@ -74,9 +74,14 @@ test, not a confirmed LinkedIn policy or proof that the revised Linki flow works
 The revised local app passed its production build and was installed only in the
 localhost test container, with the previous container retained for rollback.
 The first read-only watcher timed out without a new operator login and made no
-LinkedIn requests. The ordinary Linki login path still needs an operator login
-followed by an independent check after its verification browser closes. Until
-then, its connected flag is insufficient evidence of a durable session.
+LinkedIn requests. In the next operator-run login, Linki saved a new session,
+but a single restored context checked ten seconds later reached the login page
+and lost its `li_at` cookie on the first feed navigation. Both campaigns remained
+completed and there were no scheduled imports. Thus serializing the two
+contexts alone did not fix the ordinary app path. The isolated diagnostic did
+not call the identity API or perform a third restore after verification; those
+differences remain hypotheses, not a diagnosed LinkedIn rejection reason.
+The connected flag is still insufficient evidence of a durable session.
 This patch does not install the reply extension. The specific reply was verified
 separately through the operator's browser and replayed in an isolated database,
 but automatic Linki polling remains blocked.
