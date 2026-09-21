@@ -107,3 +107,13 @@ localhost:3456 with reply polling disabled. It has not been tested with a fresh
 real login; the prior PR #8-only container remains available for rollback. A
 future live check must be performed by the operator, with password and app
 approval handled by them.
+
+The next operator attempts reached the feed after app approval, but Linki
+returned its reusable-session error. The same saved session then redirected to
+LinkedIn login before the Quentin message query ran. This does not establish
+which of the original-page check, snapshot, or restored-page check failed: the
+error handler previously collapsed all of them into one message. The login
+path now logs only a fixed failure stage, without account identifiers, URLs,
+response bodies, cookies, or credentials. The browser still receives the same
+generic error. A subsequent operator login is needed to observe the stage;
+the reply query and pagination remain unverified.

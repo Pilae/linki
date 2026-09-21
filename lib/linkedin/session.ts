@@ -339,27 +339,33 @@ async function persistLogin(accountId: string, ctx: BrowserContext, page: Page):
   const message = "LinkedIn did not confirm a reusable session. Please sign in again and complete verification.";
   let probeBrowser: Browser | null = null;
   let probeContext: BrowserContext | null = null;
+  let stage: "original_page" | "snapshot" | "restore" | "restored_page" | "save" = "original_page";
   try {
     // A short bounded wait lets feed bootstrap finish setting session cookies.
     await page.waitForLoadState("networkidle", { timeout: 5_000 }).catch(() => {});
     const identity = await loginIdentity(page);
+    stage = "snapshot";
     const state = await ctx.storageState();
     // Do not reuse the same LinkedIn session in two live contexts at once.
     // Close the login context before verifying the snapshot in a new browser.
     await closeSession(accountId);
     await ctx.close();
+    stage = "restore";
     probeBrowser = await chromium.launch({headless:true,executablePath:CHROMIUM_PATH,args:LAUNCH_ARGS});
     probeContext = await probeBrowser.newContext(contextOptions(state));
     const probePage = await probeContext.newPage();
+    stage = "restored_page";
     if (await loginIdentity(probePage, true) !== identity) throw new Error("unverified_session");
     // Keep cookies refreshed by the validation request, if any.
     const verifiedState = await probeContext.storageState();
+    stage = "save";
     const db = getDb();
     db.prepare("UPDATE accounts SET cookies_json = ?, is_authenticated = 1 WHERE id = ?").run(
       encryptSecret(JSON.stringify(verifiedState)), accountId
     );
   } catch {
     // Never return transport errors containing URLs, headers or session material.
+    console.warn(`[login] reusable session verification failed at ${stage}`);
     throw new Error(message);
   } finally {
     await probeContext?.close().catch(() => {});
