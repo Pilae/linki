@@ -296,30 +296,43 @@ function sweepPendingLogins(): void {
 /** Save a login only after its settled session works in a fresh browser.
  * The URL reaching /feed/ does not mean its cookies are ready to persist.
  */
-async function loginIdentity(ctx: BrowserContext): Promise<string> {
-  const cookies = await ctx.cookies("https://www.linkedin.com");
+async function loginIdentity(page: Page, navigate = false): Promise<string> {
+  if (navigate) {
+    const response = await page.goto("https://www.linkedin.com/feed/", { waitUntil: "domcontentloaded", timeout: 20_000 });
+    if (!response || response.status() !== 200) throw new Error("unverified_session");
+  }
+  const location = new URL(page.url());
+  if (location.origin !== "https://www.linkedin.com" || !/^\/feed\/?$/.test(location.pathname)) throw new Error("unverified_session");
+  const cookies = await page.context().cookies("https://www.linkedin.com");
   const csrf = cookies.find(cookie => cookie.name === "JSESSIONID")?.value;
   if (!csrf || !cookies.some(cookie => cookie.name === "li_at")) throw new Error("unverified_session");
-  const response = await ctx.request.get("https://www.linkedin.com/voyager/api/me", {
-    headers: {
-      "csrf-token": csrf.replace(/^"|"$/g, ""),
-      "x-restli-protocol-version": "2.0.0",
-      accept: "application/vnd.linkedin.normalized+json+2.1",
-    },
-    timeout: 15_000,
-    maxRedirects: 0,
-  });
-  try {
-    if (response.status() !== 200) throw new Error("unverified_session");
-    const body = await response.body();
-    if (body.length > 1_000_000) throw new Error("unverified_session");
-    const payload = JSON.parse(body.toString());
-    const identity = payload?.data?.["*miniProfile"];
-    if (payload?.errors || typeof identity !== "string" || !/^urn:li:fs_miniProfile:[A-Za-z0-9_-]+$/.test(identity)) throw new Error("unverified_session");
-    return identity;
-  } finally {
-    await response.dispose();
-  }
+  const result = await page.evaluate(async token => {
+    const controller = new AbortController(), timer = setTimeout(() => controller.abort(), 15_000);
+    try {
+      const response = await fetch("/voyager/api/me", {
+        method: "GET", credentials: "same-origin", redirect: "manual", signal: controller.signal,
+        headers: {"csrf-token": token, "x-restli-protocol-version": "2.0.0", accept: "application/vnd.linkedin.normalized+json+2.1"},
+      });
+      if (response.type === "opaqueredirect" || response.redirected || response.url && new URL(response.url).origin !== location.origin) return {status: 302, body: null};
+      const declared = Number(response.headers.get("content-length"));
+      if (Number.isFinite(declared) && declared > 1_000_000 || !response.body) return {status: response.status, body: null};
+      const reader = response.body.getReader(), chunks: Uint8Array[] = []; let bytes = 0;
+      while (true) {
+        const next = await reader.read(); if (next.done) break;
+        bytes += next.value.byteLength;
+        if (bytes > 1_000_000) { await reader.cancel(); return {status: response.status, body: null}; }
+        chunks.push(next.value);
+      }
+      const joined = new Uint8Array(bytes); let offset = 0;
+      for (const chunk of chunks) { joined.set(chunk, offset); offset += chunk.byteLength; }
+      return {status: response.status, body: new TextDecoder().decode(joined)};
+    } finally { clearTimeout(timer); }
+  }, csrf.replace(/^"|"$/g, ""));
+  if (result.status !== 200 || !result.body) throw new Error("unverified_session");
+  const payload = JSON.parse(result.body);
+  const identity = payload?.data?.["*miniProfile"];
+  if (payload?.errors || typeof identity !== "string" || !/^urn:li:fs_miniProfile:[A-Za-z0-9_-]+$/.test(identity)) throw new Error("unverified_session");
+  return identity;
 }
 
 async function persistLogin(accountId: string, ctx: BrowserContext, page: Page): Promise<void> {
@@ -329,7 +342,7 @@ async function persistLogin(accountId: string, ctx: BrowserContext, page: Page):
   try {
     // A short bounded wait lets feed bootstrap finish setting session cookies.
     await page.waitForLoadState("networkidle", { timeout: 5_000 }).catch(() => {});
-    const identity = await loginIdentity(ctx);
+    const identity = await loginIdentity(page);
     const state = await ctx.storageState();
     // Do not reuse the same LinkedIn session in two live contexts at once.
     // Close the login context before verifying the snapshot in a new browser.
@@ -337,7 +350,8 @@ async function persistLogin(accountId: string, ctx: BrowserContext, page: Page):
     await ctx.close();
     probeBrowser = await chromium.launch({headless:true,executablePath:CHROMIUM_PATH,args:LAUNCH_ARGS});
     probeContext = await probeBrowser.newContext(contextOptions(state));
-    if (await loginIdentity(probeContext) !== identity) throw new Error("unverified_session");
+    const probePage = await probeContext.newPage();
+    if (await loginIdentity(probePage, true) !== identity) throw new Error("unverified_session");
     // Keep cookies refreshed by the validation request, if any.
     const verifiedState = await probeContext.storageState();
     const db = getDb();

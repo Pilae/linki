@@ -85,3 +85,23 @@ The connected flag is still insufficient evidence of a durable session.
 This patch does not install the reply extension. The specific reply was verified
 separately through the operator's browser and replayed in an isolated database,
 but automatic Linki polling remains blocked.
+
+## Browser-page verification experiment
+
+After PR #8 was installed locally with reply polling disabled, an operator-run,
+Quentin-scoped query diagnostic restored the saved session into a new browser.
+Navigation returned HTTP 200 but ended at LinkedIn login; `li_at` was present
+before navigation and absent afterward. No message query was made. The diagnostic
+blocked one non-GET request, so it does not isolate why the session was rejected.
+The query and historical pagination remain unverified.
+
+The next PR #10 iteration verifies the mailbox identity through a bounded
+same-origin fetch inside the login page and the restored probe page, after the
+probe navigates to the feed. It no longer uses the separate Playwright request
+client for login verification. This addresses one untested difference between
+the successful isolated page handoff and the failed ordinary app path; it is a
+hypothesis, not a proven fix. Three login fixtures, related enrollment,
+acceptance and metrics fixtures, TypeScript, scoped lint and production build
+pass. This iteration has not been installed or tested with a real login. PR #8
+remains the running local image with polling disabled. A future live check must
+be performed by the operator, with password and app approval handled by them.
