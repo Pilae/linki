@@ -117,5 +117,15 @@ does not distinguish a missing cookie, rejected identity request, malformed
 response, or other check failure. The login path now logs a fixed reason code
 as well as the stage, without account identifiers, URLs, response bodies,
 cookies, or credentials. The browser still receives the same generic error.
-A subsequent operator login is needed to observe the reason; the reply query
-and pagination remain unverified.
+The next operator login reported `original_page: request`. Inspection of the
+actual production bundle found the cause: its browser-evaluated function
+referenced the outer, server-side `location` value after compilation. Playwright
+serializes that function into the page, where the captured server variable does
+not exist. The check therefore threw before it could classify LinkedIn's
+response. The function now references `globalThis.location` in the page and
+uses a differently named variable for the server-side URL. A regression test
+executes the evaluator in an isolated browser-like VM with a nonempty response
+URL; the corrected production bundle is also inspected before local rollout.
+This fixes the identified client-evaluation error, but a fresh operator login
+is still needed to verify real session persistence. The reply query and
+pagination remain unverified.

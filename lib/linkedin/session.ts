@@ -309,8 +309,8 @@ async function loginIdentity(page: Page, navigate = false): Promise<string> {
     const response = await page.goto("https://www.linkedin.com/feed/", { waitUntil: "domcontentloaded", timeout: 20_000 });
     if (!response || response.status() !== 200) rejectIdentity("navigation");
   }
-  const location = new URL(page.url());
-  if (location.origin !== "https://www.linkedin.com" || !/^\/feed\/?$/.test(location.pathname)) rejectIdentity("feed_path");
+  const pageLocation = new URL(page.url());
+  if (pageLocation.origin !== "https://www.linkedin.com" || !/^\/feed\/?$/.test(pageLocation.pathname)) rejectIdentity("feed_path");
   const cookies = await page.context().cookies("https://www.linkedin.com");
   const csrf = cookies.find(cookie => cookie.name === "JSESSIONID")?.value;
   if (!csrf) rejectIdentity("csrf_cookie");
@@ -323,7 +323,7 @@ async function loginIdentity(page: Page, navigate = false): Promise<string> {
         method: "GET", credentials: "same-origin", redirect: "manual", signal: controller.signal,
         headers: {"csrf-token": token, "x-restli-protocol-version": "2.0.0", accept: "application/vnd.linkedin.normalized+json+2.1"},
       });
-      if (response.type === "opaqueredirect" || response.redirected || response.url && new URL(response.url).origin !== location.origin) return {status: 302, body: null};
+      if (response.type === "opaqueredirect" || response.redirected || response.url && new URL(response.url).origin !== globalThis.location.origin) return {status: 302, body: null};
       const declared = Number(response.headers.get("content-length"));
       if (Number.isFinite(declared) && declared > 1_000_000 || !response.body) return {status: response.status, body: null};
       const reader = response.body.getReader(), chunks: Uint8Array[] = []; let bytes = 0;

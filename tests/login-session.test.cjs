@@ -1,4 +1,4 @@
-const {test}=require('node:test'),assert=require('node:assert/strict'),fs=require('node:fs'),Module=require('node:module'),ts=require('typescript');
+const {test}=require('node:test'),assert=require('node:assert/strict'),fs=require('node:fs'),Module=require('node:module'),vm=require('node:vm'),ts=require('typescript');
 function fixture({originalStatus=200,restoredStatus=200,restoredIdentity='urn:li:fs_miniProfile:fixture',missingCookie=false,transport=false}={}){
  const writes=[],calls=[],closures=[];let settled=false;
  const cookies=[{name:'JSESSIONID',value:'"ajax:fixture"'},...missingCookie?[]:[{name:'li_at',value:'fixture-secret'}]];
@@ -18,8 +18,8 @@ function fixture({originalStatus=200,restoredStatus=200,restoredIdentity='urn:li
 }
 test('login identity verification executes a bounded same-origin request in the page',async()=>{
  const f=fixture(),previous=global.fetch,calls=[];
- global.fetch=async(url,options)=>{calls.push({url,options});return new Response(JSON.stringify({data:{'*miniProfile':'urn:li:fs_miniProfile:fixture'}}),{status:200});};
- const page={url:()=> 'https://www.linkedin.com/feed/',context:()=>f.ctx,evaluate:async(fn,arg)=>fn(arg)};
+ global.fetch=async(url,options)=>{calls.push({url,options});const response=new Response(JSON.stringify({data:{'*miniProfile':'urn:li:fs_miniProfile:fixture'}}),{status:200});Object.defineProperty(response,'url',{value:'https://www.linkedin.com/voyager/api/me'});return response;};
+ const page={url:()=> 'https://www.linkedin.com/feed/',context:()=>f.ctx,evaluate:async(fn,arg)=>vm.runInNewContext(`(${fn.toString()})`,{fetch:global.fetch,AbortController,setTimeout,clearTimeout,URL,TextDecoder,Uint8Array,location:{origin:'https://www.linkedin.com'}})(arg)};
  try {
   assert.equal(await f.loginIdentity(page),'urn:li:fs_miniProfile:fixture');
   assert.equal(calls.length,1);assert.equal(calls[0].url,'/voyager/api/me');
