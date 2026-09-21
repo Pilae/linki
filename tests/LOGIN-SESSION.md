@@ -8,8 +8,10 @@ identity request redirected immediately after the Sales Navigator visit. This
 isolates that navigation as the trigger in this observed case; it does not
 establish that every account is affected.
 
-The login persistence function now verifies the ordinary authenticated identity
-endpoint and saves the session without visiting Sales Navigator. Missing cookies,
+The login persistence function now waits briefly for feed bootstrap, verifies the
+ordinary authenticated identity endpoint, snapshots the session, and checks the
+same identity in a fresh browser process before saving its cookies. It does not
+visit Sales Navigator. Missing cookies,
 redirects, HTTP failures and malformed identity responses reject persistence.
 Requests have a 15-second timeout, no redirects and no immediate retries. Errors
 shown to callers contain no request URLs or session values. Stored credentials
@@ -30,9 +32,10 @@ npx tsc --noEmit --incremental false
 npx eslint lib/linkedin/session.ts
 ```
 
-The two new tests fail against the original deployed session source and pass
-against the corrected implementation. They simulate cookie invalidation on a
-Sales Navigator visit and ensure rejected sessions cannot be marked connected.
+The regression tests verify the feed wait, restored identity check and refusal
+to save rejected or mismatched sessions. The earlier tests reproduced the
+Sales Navigator failure; a later authorized diagnostic showed that a settled
+session also survived context closure and fresh-browser restoration.
 The existing enrollment tests, acceptance/metrics fixtures and 12 network-disabled
 browser login-signal assertions also pass. TypeScript, scoped lint and a build
 of the patched local image pass. The build retains the missing optional `ee/`
@@ -47,12 +50,12 @@ or restarted. The login-only fix was installed on the local sandbox using its
 existing image and browser version; its previous container is retained for
 rollback. Production was not changed.
 
-A subsequent operator login on the corrected local server saved a fresh session
-and passed the new identity check, but a later independent restoration returned
-302 followed by 401. Removing the Sales Navigator visit is therefore insufficient
-to establish durable authentication. The initial diagnostic established a temporal
-failure after that visit, not its exclusive causal role. A follow-up diagnostic
-without Sales Navigator separates page settling, context closure, and browser
-restart. The remaining cause is unconfirmed; live validation is not complete.
+A subsequent operator login with only the Sales Navigator removal saved a fresh
+session and passed an immediate identity check, but a later independent restore
+returned 302 followed by 401. A later bounded diagnostic let the feed settle
+and confirmed identity both after login-context closure and in a fresh browser
+process (200 in all four stages). This supports waiting and validating a fresh
+browser before saving. Whether the corrected application persists a reusable
+session still requires one operator-run login and subsequent read-only check.
 Full reply attribution remains blocked; this patch does not install the reply
 extension.

@@ -293,46 +293,61 @@ function sweepPendingLogins(): void {
   }
 }
 
-/** Verify the ordinary LinkedIn session before persisting it as authenticated.
- * A Sales Navigator visit can invalidate a regular account's fresh session.
- * Product-specific initialization belongs to an explicitly requested product flow.
+/** Save a login only after its settled session works in a fresh browser.
+ * The URL reaching /feed/ does not mean its cookies are ready to persist.
  */
-async function persistLogin(accountId: string, ctx: BrowserContext): Promise<void> {
-  const message = "LinkedIn did not confirm a usable session. Please sign in again and complete verification.";
+async function loginIdentity(ctx: BrowserContext): Promise<string> {
   const cookies = await ctx.cookies("https://www.linkedin.com");
   const csrf = cookies.find(cookie => cookie.name === "JSESSIONID")?.value;
-  if (!csrf || !cookies.some(cookie => cookie.name === "li_at")) throw new Error(message);
+  if (!csrf || !cookies.some(cookie => cookie.name === "li_at")) throw new Error("unverified_session");
+  const response = await ctx.request.get("https://www.linkedin.com/voyager/api/me", {
+    headers: {
+      "csrf-token": csrf.replace(/^"|"$/g, ""),
+      "x-restli-protocol-version": "2.0.0",
+      accept: "application/vnd.linkedin.normalized+json+2.1",
+    },
+    timeout: 15_000,
+    maxRedirects: 0,
+  });
   try {
-    const response = await ctx.request.get("https://www.linkedin.com/voyager/api/me", {
-      headers: {
-        "csrf-token": csrf.replace(/^"|"$/g, ""),
-        "x-restli-protocol-version": "2.0.0",
-        accept: "application/vnd.linkedin.normalized+json+2.1",
-      },
-      timeout: 15_000,
-      maxRedirects: 0,
-    });
-    try {
-      if (response.status() !== 200) throw new Error(message);
-      const body = await response.body();
-      if (body.length > 1_000_000) throw new Error(message);
-      const payload = JSON.parse(body.toString());
-      const identity = payload?.data?.["*miniProfile"];
-      if (payload?.errors || typeof identity !== "string" || !/^urn:li:fs_miniProfile:[A-Za-z0-9_-]+$/.test(identity)) throw new Error(message);
-    } finally {
-      await response.dispose();
-    }
+    if (response.status() !== 200) throw new Error("unverified_session");
+    const body = await response.body();
+    if (body.length > 1_000_000) throw new Error("unverified_session");
+    const payload = JSON.parse(body.toString());
+    const identity = payload?.data?.["*miniProfile"];
+    if (payload?.errors || typeof identity !== "string" || !/^urn:li:fs_miniProfile:[A-Za-z0-9_-]+$/.test(identity)) throw new Error("unverified_session");
+    return identity;
+  } finally {
+    await response.dispose();
+  }
+}
+
+async function persistLogin(accountId: string, ctx: BrowserContext, page: Page): Promise<void> {
+  const message = "LinkedIn did not confirm a reusable session. Please sign in again and complete verification.";
+  let probeBrowser: Browser | null = null;
+  let probeContext: BrowserContext | null = null;
+  try {
+    // A short bounded wait lets feed bootstrap finish setting session cookies.
+    await page.waitForLoadState("networkidle", { timeout: 5_000 }).catch(() => {});
+    const identity = await loginIdentity(ctx);
+    const state = await ctx.storageState();
+    probeBrowser = await chromium.launch({headless:true,executablePath:CHROMIUM_PATH,args:LAUNCH_ARGS});
+    probeContext = await probeBrowser.newContext(contextOptions(state));
+    if (await loginIdentity(probeContext) !== identity) throw new Error("unverified_session");
+    // Keep cookies refreshed by the validation request, if any.
+    const verifiedState = await probeContext.storageState();
+    const db = getDb();
+    db.prepare("UPDATE accounts SET cookies_json = ?, is_authenticated = 1 WHERE id = ?").run(
+      encryptSecret(JSON.stringify(verifiedState)), accountId
+    );
+    await closeSession(accountId);
   } catch {
     // Never return transport errors containing URLs, headers or session material.
     throw new Error(message);
+  } finally {
+    await probeContext?.close().catch(() => {});
+    await probeBrowser?.close().catch(() => {});
   }
-  const db = getDb();
-  const state = await ctx.storageState();
-  db.prepare("UPDATE accounts SET cookies_json = ?, is_authenticated = 1 WHERE id = ?").run(
-    encryptSecret(JSON.stringify(state)),
-    accountId
-  );
-  await closeSession(accountId);
 }
 
 /**
@@ -426,7 +441,7 @@ export async function startHeadlessLogin(
     const result = await classifyLoginState(page);
     console.log(`[login] start account=${accountId} -> ${result.status}${"kind" in result ? "/" + result.kind : ""} url=${page.url()}`);
     if (result.status === "authenticated") {
-      await persistLogin(accountId, ctx);
+      await persistLogin(accountId, ctx, page);
       await ctx.close();
       return result;
     }
@@ -460,7 +475,7 @@ export async function submitLoginChallenge(accountId: string, code: string): Pro
     const result = await classifyLoginState(page);
     console.log(`[login] verify account=${accountId} -> ${result.status}${"kind" in result ? "/" + result.kind : ""} url=${page.url()}`);
     if (result.status === "authenticated") {
-      await persistLogin(accountId, ctx);
+      await persistLogin(accountId, ctx, page);
       await clearPendingLogin(accountId);
       return result;
     }
@@ -501,7 +516,7 @@ export async function awaitLoginApproval(accountId: string): Promise<LoginResult
     const result = await classifyLoginState(page);
     console.log(`[login] await account=${accountId} -> ${result.status}${"kind" in result ? "/" + result.kind : ""} url=${page.url()}`);
     if (result.status === "authenticated") {
-      await persistLogin(accountId, ctx);
+      await persistLogin(accountId, ctx, page);
       await clearPendingLogin(accountId);
       return result;
     }
