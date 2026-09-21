@@ -8,6 +8,9 @@ export function migrate(db: DB) {
     error TEXT, incomplete INTEGER NOT NULL DEFAULT 1, auth_failures INTEGER NOT NULL DEFAULT 0,
     cursor TEXT, listing_done INTEGER NOT NULL DEFAULT 0,
     lease TEXT, lease_until INTEGER NOT NULL DEFAULT 0);
+  CREATE TABLE IF NOT EXISTS pilae_reply_checkpoints (
+    account_id TEXT NOT NULL, scope TEXT NOT NULL, sync_token TEXT NOT NULL,
+    PRIMARY KEY(account_id,scope));
   CREATE TABLE IF NOT EXISTS pilae_reply_conversations (
     account_id TEXT NOT NULL, conversation_id TEXT NOT NULL, participants TEXT NOT NULL,
     unsupported INTEGER NOT NULL, pending INTEGER NOT NULL DEFAULT 1, cursor TEXT,
@@ -29,15 +32,20 @@ export function migrate(db: DB) {
     workflow_id TEXT NOT NULL,target_id TEXT NOT NULL,kind TEXT NOT NULL,
     occurred_at TEXT NOT NULL,source TEXT NOT NULL,
     PRIMARY KEY(workflow_id,target_id,kind,occurred_at));`);
+  db.transaction(()=> {
+  if (!(db.prepare('PRAGMA table_info(pilae_reply_accounts)').all() as {name:string}[]).some(c=>c.name==='coverage_gap')) {
+    db.exec('ALTER TABLE pilae_reply_accounts ADD COLUMN coverage_gap INTEGER NOT NULL DEFAULT 0');
+  }
+  }).immediate();
 }
 export type State = {
   account_id: string; provider: string; identity: string | null; cursor: string | null;
-  listing_done: number; last_attempt: number | null; last_success: number | null;
+  coverage_gap: number; listing_done: number; last_attempt: number | null; last_success: number | null;
   next_check: number; error: string | null; incomplete: number; auth_failures: number;
 };
 export function state(db: DB, id: string): State | undefined {
   return db.prepare(`SELECT account_id,provider,identity,cursor,listing_done,last_attempt,last_success,
-    next_check,error,incomplete,auth_failures FROM pilae_reply_accounts WHERE account_id=?`).get(id) as State | undefined;
+    next_check,error,incomplete,auth_failures,coverage_gap FROM pilae_reply_accounts WHERE account_id=?`).get(id) as State | undefined;
 }
 // Provider ownership survives restarts. Changing providers requires an explicit drained handover.
 export function acquire(db: DB, id: string, provider: string, now: number): string | null {

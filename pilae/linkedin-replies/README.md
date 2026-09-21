@@ -1,6 +1,6 @@
 # Pilae LinkedIn reply detection (draft)
 
-This is an independent Pilae extension, disabled by default. It stores replies and campaign evidence without sending messages, creating runs, or restarting outreach. It is fixture-tested, not validated against a real LinkedIn inbox. Do not enable accounts until the operator explicitly approves reading their conversations.
+This is an independent Pilae extension, disabled by default. It stores replies and campaign evidence without sending messages, creating runs, or restarting outreach. It is fixture-tested; one authorized conversation capture now parses, but complete real-account synchronization remains unvalidated. Do not enable accounts until the operator explicitly approves reading their conversations.
 
 ## Architecture investigation
 
@@ -13,7 +13,7 @@ Inspected on 2026-09-21:
 - `lib/linkedin/session.ts` provides encrypted stored sessions and `getSessionContext(accountId)`, explicitly supporting `ctx.request`. This is the reader's server-side transport. Existing browser fingerprints, storage and account isolation are retained. No alternate cookie store, account connection flow, license bypass, or premium source is introduced.
 - The runtime at localhost:3456 was `pilae-linki:arm64-enrollment`, with only its data directory bind-mounted; it was not rebuilt or restarted. Existing Twenty and adapter containers were not deployed or restarted.
 
-The public [messaging endpoint reference](https://github.com/vicnaum/linkedin-toolkit/blob/main/references/endpoints.md) informed the experimental GraphQL envelope and cursor design. No implementation was copied. It is third-party evidence, not verification of our account. Query hashes, participant shapes, CSRF behavior and message pagination still require an authorized capture. Missing or changed shapes fail as incomplete instead of reporting an empty inbox. Linki's existing Sustainable Use License remains in force; this work grants no additional hosting rights.
+The public [messaging endpoint reference](https://github.com/vicnaum/linkedin-toolkit/blob/main/references/endpoints.md) informed the experimental GraphQL envelope and cursor design. No implementation was copied. It is third-party evidence, not verification of our account. A bounded authorized capture verified a conversation envelope, top-level participant identities, embedded latest messages, and unquoted CSRF header behavior. Full-thread query variables and historical message pagination remain unverified. See [validation evidence](VALIDATION.md). Missing or changed shapes fail as incomplete instead of reporting an empty inbox. Linki's existing Sustainable Use License remains in force; this work grants no additional hosting rights.
 
 ## Boundaries
 
@@ -33,7 +33,7 @@ Only three existing shared files have hooks: `instrumentation.ts`, `lib/linkedin
 
 Each account's first successfully read mailbox identity is pinned. A different identity requires operator investigation and blocks further automatic polling. Conversation and message keys include account IDs. Participants must resolve to exact profile URNs and, for URL matching, an explicit profile link. Display names and legacy `messaging_urn` never participate. Group conversations and conversations without exactly two distinct participants including the mailbox owner are excluded and counted.
 
-A recipient must match exactly one target enrolled under that account, through an exact stored member URN or exact canonical profile URL. The first exact match pins the participant URN to the account/target in `pilae_reply_identities`; subsequent checks use that binding and cannot silently rebind a reused profile URL. Profile URLs can change: unresolved identities remain unassigned; there is no fuzzy fallback. Inbound messages require a different participant sender and a normal message type. System events and outbound messages cannot create reply events.
+A recipient must match exactly one target enrolled under that account, through an exact stored member URN or exact canonical profile URL. The first exact match pins the participant URN to the account/target in `pilae_reply_identities`; subsequent checks use that binding and cannot silently rebind a reused profile URL. Internal `/in/ACo...` links are resolved through the authenticated profile endpoint; the returned immutable URN must equal the participant URN before using its canonical URL. Profile URLs can change: unresolved identities remain unassigned; there is no fuzzy fallback. Inbound messages require a different participant sender and a normal message type. System events and outbound messages cannot create reply events.
 
 Attribution additionally requires a successful Message/InMail log after enrollment, before the inbound message, and an outbound message in that same conversation within 60 seconds of the success log. More than one eligible run is ambiguous and creates no campaign event. This conservative evidence rule can miss legitimate replies when logs/identities are missing, clocks drift, or multiple campaigns contacted the same person. Diagnostics expose these decisions; they are not silently counted as zero replies.
 
@@ -42,6 +42,8 @@ Verified replies emit one immutable event per account/conversation/message, inse
 ### Persistence, recovery and health
 
 Migrations create only `pilae_reply_*` tables and the existing campaign outcome table if absent. Conversation listing and message pagination have independent durable cursors. Each received page, its message IDs, attribution and next cursor commit in one SQLite immediate transaction. A failed page is retried from its previous checkpoint. After restart, pending conversations finish before listing continues. Older outbound evidence arriving on a later message page re-evaluates stored inbound messages.
+
+Sync-only snapshots with `newSyncToken` retain embedded messages and a separate opaque checkpoint, but remain incomplete: a sync token is not a historical-page cursor. Coverage gaps persist across interrupted cycles; they never advance `last_success`. Incremental sync-token replay is not implemented.
 
 A fresh completed cycle restarts listing from the first page; deduplication makes overlapping scans safe and catches new activity on subsequent cycles. No timestamp-only high-water mark drops same-time messages. Each check processes at most 20 pages, continuing unfinished work after one minute. Normal checks are every 15 minutes, independent of campaign status. Reads have 20-second timeouts, no redirects and no immediate retries. Transport/rate failures wait 15 minutes. Authentication/identity failures stop automatic retries until manual review; manual checks are limited to once per minute.
 

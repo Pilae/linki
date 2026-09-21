@@ -1,5 +1,5 @@
 const {test}=require('node:test'),assert=require('node:assert/strict');
-const {SessionReader,parseConversations,parseMessages}=require('./load.cjs').loader()('pilae/linkedin-replies/reader.ts');
+const {SessionReader,parseConversations,parseMessages,parseProfile}=require('./load.cjs').loader()('pilae/linkedin-replies/reader.ts');
 const self='urn:li:fsd_profile:self',peer='urn:li:fsd_profile:peer';
 const participant={entityUrn:'participant',hostIdentityUrn:peer,profileUrl:'https://www.linkedin.com/in/alice'};
 function envelope(root,items,included=[],next=null){return {data:{data:{[root]:{'*elements':items.map(x=>x.entityUrn),metadata:{nextCursor:next}}}},included:[...items,...included]};}
@@ -17,7 +17,7 @@ test('uses account context GET with bounded timeout, cookie header only server-s
  }}};
  const reader=new SessionReader(context,{conversations:'messengerConversations.'+'a'.repeat(32),messages:'messengerMessages.'+'b'.repeat(32)});
  assert.equal(await reader.identity(),self);await reader.conversations('cursor:(one)');
- assert.equal(calls[0].options.maxRedirects,0);assert.equal(calls[0].options.timeout,20000);assert.equal(calls[0].options.headers['csrf-token'],'"ajax:fixture"');assert.ok(!JSON.stringify(calls).includes('synthetic'));
+ assert.equal(calls[0].options.maxRedirects,0);assert.equal(calls[0].options.timeout,20000);assert.equal(calls[0].options.headers['csrf-token'],'ajax:fixture');assert.ok(!JSON.stringify(calls).includes('synthetic'));
  assert.ok(calls[1].url.includes('cursor%3A%28one%29'));
 });
 test('expired session, redirects, rate limits and malformed responses have safe errors',async()=>{
@@ -26,4 +26,20 @@ test('expired session, redirects, rate limits and malformed responses have safe 
  const reader=new SessionReader(context,{conversations:'messengerConversations.'+'a'.repeat(32),messages:'messengerMessages.'+'b'.repeat(32)});
  await assert.rejects(reader.identity(),e=>e.code===code&&!e.message.includes('secret'));
  }
+});
+test('observed sync snapshot shape retains embedded messages without claiming history coverage',()=>{
+ const peerNode={entityUrn:'participant',hostIdentityUrn:peer,participantType:{member:{profileUrl:'https://www.linkedin.com/in/ACofixture'}}};
+ const msg={entityUrn:'reply',deliveredAt:1000000,'*sender':'participant',body:{text:'Synthetic reply'}};
+ const c={entityUrn:'conversation',groupChat:false,'*conversationParticipants':['participant','self'],messages:{'*elements':['reply']}};
+ const raw=envelope('messengerConversationsBySyncToken',[c],[peerNode,{entityUrn:'self',hostIdentityUrn:self},msg]);
+ raw.data.data.messengerConversationsBySyncToken.metadata={newSyncToken:'opaque-sync-token'};
+ const page=parseConversations(raw);
+ assert.equal(page.coverage,'partial');assert.equal(page.next,null);assert.equal(page.syncToken,'opaque-sync-token');
+ assert.equal(page.items[0].participants[0].id,peer);assert.equal(page.items[0].messages[0].sender,peer);
+});
+test('canonical profile resolution follows the requested root identity only',()=>{
+ const raw={data:{'*elements':[peer]},included:[{entityUrn:self,publicIdentifier:'wrong'},{entityUrn:peer,publicIdentifier:'alice'}]};
+ assert.deepEqual(parseProfile(raw),{id:peer,profileUrl:'https://www.linkedin.com/in/alice'});
+ assert.throws(()=>parseProfile({...raw,data:{'*elements':[peer,self]}}));
+ assert.throws(()=>parseProfile({...raw,included:[raw.included[0]]}));
 });

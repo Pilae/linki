@@ -95,3 +95,38 @@ test('recipient URN is pinned and cannot silently rebind a reused profile URL',a
  await synchronize(f.db,'a',f.reader,()=>now+60000);assert.equal(f.events().length,1);
  assert.equal(f.db.prepare('SELECT participant_id FROM pilae_reply_identities').get().participant_id,'alice');f.db.close();
 });
+test('sync snapshots retain messages and checkpoints; coverage gap survives an interrupted cycle',async()=>{
+ const f=fixture();f.c.messages=[f.inbound];
+ f.reader.conversations=async()=>({items:[f.c],next:null,coverage:'partial',syncToken:'snapshot'});
+ await synchronize(f.db,'a',f.reader,()=>now,1);
+ assert.equal(f.db.prepare('SELECT count(*) AS n FROM pilae_reply_messages').get().n,1);
+ assert.equal(state(f.db,'a').cursor,null);assert.equal(state(f.db,'a').coverage_gap,1);
+ assert.equal(f.db.prepare('SELECT sync_token FROM pilae_reply_checkpoints').get().sync_token,'snapshot');
+ f.reader.messages=async()=>({items:[f.out],next:null});
+ await synchronize(f.db,'a',f.reader,()=>now+60000);
+ assert.equal(f.events().length,1);assert.equal(state(f.db,'a').last_success,null);assert.equal(state(f.db,'a').incomplete,1);
+ assert.equal(state(f.db,'a').error,'incomplete');
+ await synchronize(f.db,'a',f.reader,()=>now+120000);assert.equal(f.events().length,1);f.db.close();
+});
+test('internal profile URL resolution must match participant identity before attribution',async()=>{
+ for(const mismatch of [false,true]) {
+ const f=fixture();f.c.participants[1].profileUrl='https://www.linkedin.com/in/ACofixture';
+ f.reader.resolveProfile=async url=>{assert.equal(url,f.c.participants[1].profileUrl);return {id:mismatch?'other':'alice',profileUrl:'https://www.linkedin.com/in/alice'};};
+ await synchronize(f.db,'a',f.reader,()=>now);
+ assert.equal(f.events().length,mismatch?0:1);if(mismatch)assert.equal(state(f.db,'a').error,'identity_changed');f.db.close();
+ }
+});
+test('partial message pages preserve previous success and do not manufacture outbound evidence',async()=>{
+ const f=fixture();f.reader.messages=async()=>({items:[f.inbound],next:null,coverage:'partial',syncToken:'messages-sync'});
+ await synchronize(f.db,'a',f.reader,()=>now);
+ assert.equal(f.events().length,0);assert.equal(state(f.db,'a').last_success,null);assert.equal(state(f.db,'a').incomplete,1);
+ assert.equal(f.db.prepare('SELECT sync_token FROM pilae_reply_checkpoints').get().sync_token,'messages-sync');f.db.close();
+});
+test('schema upgrade preserves existing account state and is idempotent',()=>{
+ const db=new Database(':memory:');db.exec(`CREATE TABLE pilae_reply_accounts (
+ account_id TEXT PRIMARY KEY,provider TEXT NOT NULL,identity TEXT,last_attempt INTEGER,last_success INTEGER,
+ next_check INTEGER NOT NULL DEFAULT 0,error TEXT,incomplete INTEGER NOT NULL DEFAULT 1,auth_failures INTEGER NOT NULL DEFAULT 0,
+ cursor TEXT,listing_done INTEGER NOT NULL DEFAULT 0,lease TEXT,lease_until INTEGER NOT NULL DEFAULT 0);
+ INSERT INTO pilae_reply_accounts(account_id,provider,last_success,cursor) VALUES('a','pilae',123,'resume');`);
+ migrate(db);migrate(db);assert.equal(state(db,'a').last_success,123);assert.equal(state(db,'a').cursor,'resume');assert.equal(state(db,'a').coverage_gap,0);db.close();
+});

@@ -27,6 +27,7 @@ export async function checkAccount(account: string) {
     },
     conversations:async c=>(await getReader()).conversations(c),
     messages:async(c,p)=>(await getReader()).messages(c,p),
+    resolveProfile:async url=>(await getReader()).resolveProfile(url),
   });
 }
 /** Premium retains its own implementation. Both entrypoints claim the same persistent account owner/lease. */
