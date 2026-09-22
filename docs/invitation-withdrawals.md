@@ -78,7 +78,8 @@ sent-invitation response schema and exact-identity DOM row contract. It performs
 read-only authenticated Voyager requests in the existing browser context, then
 uses the normal row Withdraw button and confirmation dialog. These internal
 response and DOM contracts are not official supported LinkedIn APIs and **have
-not been validated against a real account**. They may fail closed on today's UI.
+not passed real-account validation**. The authorized read-only probe below confirmed
+that the current response and DOM fail closed.
 No name-only, sidebar, profile Pending, or Remove connection fallback exists.
 Unsupported languages/actions, missing identity attributes, pagination truncation,
 list changes, authentication walls and ambiguous profile cards stop the action.
@@ -208,8 +209,8 @@ campaign policy enabled, or service deployed.
 That invitation had no campaign-owned ledger record. This was a manual UI test,
 not a queue/provider end-to-end test; no ownership or timestamp was fabricated.
 The observed French UI uses a named withdrawal link and a target-specific dialog
-button, differing from the synthetic provider contract. Automatic compatibility
-remains unvalidated, and the implementation must continue to fail closed. Before enabling
+button, differing from the synthetic provider contract. The subsequent read-only probe below confirmed automatic incompatibility with
+the observed account; the implementation must continue to fail closed. Before enabling
 on a real account, verify the normalized schema, sender identity, timestamp units,
 pagination and exact invitation-row attributes using read-only observations with
 the owner's authorization. Unsupported contracts must remain blocked until
@@ -220,7 +221,7 @@ exercised synthetically; no claim of live LinkedIn compatibility is made.
 
 ## Delivery validation
 
-The 42-test withdrawal suite covers policy boundaries and invalid payloads, exact/accepted/
+The 43-test withdrawal suite covers policy boundaries and invalid payloads, exact/accepted/
 absent/ambiguous states, ownership conflicts, lifecycle changes, queue deduplication,
 SQLite lock contention, restart recovery, partial failures and bounded verification.
 Regression cases cover actual manual unenrollment (including completed tracks and
@@ -235,3 +236,39 @@ current integration's unit and adapter suites in an isolated copy (8 unit and 34
 adapter tests). TypeScript, focused ESLint and a production build pass. The build
 retains the pre-existing optional `ee/` resolution warning and the nested-workspace
 root warning; no premium code was installed to silence them.
+
+## Read-only provider validation — 2026-09-22
+
+**Result: incompatible with the observed account; do not enable automatic withdrawal.**
+The probe exercised `readJson` and `readSnapshot` from commit `0c7f637` using the
+existing Linki sandbox session. SQLite was opened read-only, no campaigns were
+running, and the probe blocked all non-GET/HEAD/OPTIONS browser requests. No worker,
+send, withdrawal, confirmation, login or session-save function was called. A
+separate read-only DOM inspection in the owner's Chrome session corroborated the
+row mismatch. No production code or configuration was deployed.
+
+| Check | Observation |
+| --- | --- |
+| Account identity | `/voyager/api/me` returned 200; `data["*miniProfile"]` resolved to the expected account in `included` |
+| Actual provider snapshot | Rejected with `Unrecognized sent-invitations response` |
+| Collection references | Live `data["*elements"]`; parser expects `data.elements` |
+| Invitation entity | Live type `com.linkedin.voyager.relationships.invitation.Invitation`; parser expects `com.linkedin.voyager.relationships.Invitation` |
+| Identity references | Live `*fromMember`, `*toMember`, nested `invitee.*miniProfile`; distinct `fs_relInvitation` entity and `mailboxItemId` invitation URNs |
+| Send timestamp | Sampled `sentTime` values were positive integer, plausible epoch milliseconds; send-operation provenance was not tested |
+| Pagination | Offsets 0, 100, 200 returned 100, 58, 0 references; `paging` had count/start/links but no total |
+| Exact row identity | Loaded rows exposed neither `data-invitation-id` nor `data-urn` |
+| Withdrawal action | French UI exposed a named link, not the provider's exact-name button |
+
+The observed page counts are a bounded diagnostic, not proof of snapshot
+consistency under concurrent changes. The probe did not establish the complete
+sender/recipient/identity invariant for every invitation. `inspect` cannot classify
+pending, accepted or absent invitations until snapshot parsing succeeds. No
+campaign ownership was inferred from these existing invitations.
+
+Synthetic reconstructions now test rejection of the observed response (including
+an empty later page) and zero clicks on the observed row layout. They intentionally
+do not make this layout actionable. Before dry-run scheduling, support needs a
+reviewed mapping for the live identity references, a completeness/consistency rule
+without `paging.total`, and a proven binding from invitation identity to its UI
+row. Merely accepting `*elements`, using a name or adopting relative UI dates would
+not satisfy those requirements.

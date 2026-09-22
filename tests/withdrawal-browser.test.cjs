@@ -14,9 +14,21 @@ test('strict response parser, complete pagination, timestamp and send ownership 
  assert.ok(newSentInvitation(before,after,i.profile_url,sent-1,sent+1));assert.equal(newSentInvitation(after,after,i.profile_url,sent-1,sent+1),null);
  assert.equal(newSentInvitation(before,after,i.profile_url,sent+1,sent+2),null);assert.equal(newSentInvitation({...before,sender_urn:'other'},after,i.profile_url,sent-1,sent+1),null);
 });
+// Reconstructed from the authorized 2026-09-22 read-only probe. All identities
+// and timestamps are synthetic; no messages, session data or sharedSecret values.
+test('observed normalized schema without total fails closed, never becomes an empty snapshot',()=>{
+ const observed={data:{'*elements':['urn:li:fs_relSentInvitationView:synthetic'],paging:{start:0,count:100,links:[]}},included:[
+  {entityUrn:'urn:li:fs_relSentInvitationView:synthetic',$type:'com.linkedin.voyager.relationships.invitation.SentInvitationViewV2','*invitation':'urn:li:fs_relInvitation:synthetic'},
+  {entityUrn:'urn:li:fs_relInvitation:synthetic',$type:'com.linkedin.voyager.relationships.invitation.Invitation','*fromMember':i.sender_urn,'*toMember':i.recipient_urn,invitee:{'*miniProfile':i.recipient_urn},mailboxItemId:i.invitation_urn,sentTime:sent},
+  {entityUrn:i.recipient_urn,$type:'com.linkedin.voyager.identity.shared.MiniProfile',publicIdentifier:'synthetic'}
+ ]};
+ assert.throws(()=>parseInvitationPage(observed,i.sender_urn,0),/Unrecognized sent-invitations response/);
+ // An empty later page still lacks proof of completeness under the current contract.
+ assert.throws(()=>parseInvitationPage({data:{'*elements':[],paging:{start:200,count:100,links:[]}},included:[]},i.sender_urn,200),/Unrecognized sent-invitations response/);
+});
 test('isolated browser: exact pending row, confirmation, absence, ambiguous layouts and verification walls',async t=>{
  const browser=await chromium.launch({headless:true,executablePath:process.env.PLAYWRIGHT_CHROMIUM_EXECUTABLE_PATH||undefined});t.after(()=>browser.close());
- for(const scenario of ['success','accepted','missing-id','wrong-recipient','wrong-account','cancelled','unconfirmed','wall','changed-at-confirmation','incomplete-list']){
+ for(const scenario of ['success','accepted','observed-dom','missing-id','wrong-recipient','wrong-account','cancelled','unconfirmed','wall','changed-at-confirmation','incomplete-list']){
   const context=await browser.newContext();await context.addCookies([{name:'JSESSIONID',value:'synthetic-only',domain:'.linkedin.com',path:'/'}]);
   let pending=true,clicks=0,reads=0;
   await context.route('**/*',async route=>{
@@ -25,6 +37,7 @@ test('isolated browser: exact pending row, confirmation, absence, ambiguous layo
    if(u.pathname==='/voyager/api/me')return route.fulfill({json:{miniProfile:{entityUrn:scenario==='wrong-account'?'urn:li:fs_miniProfile:other':i.sender_urn}}});
    if(u.pathname.includes('sentInvitationViews')){reads++;const p=payload(scenario==='changed-at-confirmation'&&reads>=3?false:pending);if(scenario==='incomplete-list')p.data.paging.total=2;return route.fulfill({json:p})}
    if(u.pathname.startsWith('/in/'))return route.fulfill({contentType:'text/html',body:`<main><section><h1>Synthetic</h1><span>${scenario==='accepted'?'1st':'2nd'}</span></section></main>`});
+   if(u.pathname.includes('invitation-manager')&&scenario==='observed-dom')return route.fulfill({contentType:'text/html',body:`<div role="listitem" componentkey="synthetic"><a href="${i.profile_url}">Synthetic</a><p>Envoyé il y a 1 mois</p><a href="#" aria-label="Retirer l’invitation envoyée à Synthetic" onclick="fetch('/fixture-confirm',{method:'POST'});return false">Retirer</a></div>`});
    if(u.pathname.includes('invitation-manager'))return route.fulfill({contentType:'text/html',body:scenario==='wall'?'<input type="password">':`<li ${scenario==='missing-id'?'':`data-invitation-id="${i.invitation_urn}"`}><a href="https://www.linkedin.com/in/${scenario==='wrong-recipient'?'other':'synthetic'}">Synthetic</a><button onclick="document.querySelector('#dialog').style.display='block'">Withdraw</button></li><div id="dialog" role="dialog" style="display:none"><button onclick="fetch('/fixture-confirm',{method:'POST'}).then(()=>this.parentElement.remove())">Withdraw</button></div>`});
    return route.abort();
   });
@@ -33,7 +46,7 @@ test('isolated browser: exact pending row, confirmation, absence, ambiguous layo
   const before=await p.inspect(i);
   if(scenario==='accepted'||scenario==='wrong-account'){assert.equal(before.state,scenario==='accepted'?'accepted':'ambiguous');assert.equal(clicks,0);await context.close();continue;}
   assert.equal(before.state,'pending');
-  if(['missing-id','wrong-recipient','cancelled','changed-at-confirmation'].includes(scenario)){await assert.rejects(p.withdraw(i,()=>scenario!=='cancelled'));assert.equal(clicks,0)}
+  if(['observed-dom','missing-id','wrong-recipient','cancelled','changed-at-confirmation'].includes(scenario)){await assert.rejects(p.withdraw(i,()=>scenario!=='cancelled'));assert.equal(clicks,0)}
   else {await p.withdraw(i,()=>true);const result=await p.inspect(i);assert.equal(result.state,scenario==='unconfirmed'?'pending':'absent');assert.equal(clicks,1)}
   await context.close();
  }
