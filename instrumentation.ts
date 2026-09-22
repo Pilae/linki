@@ -4,6 +4,8 @@ export async function register() {
     try {
       const { ensureGlobalRunnerStarted } = await import("@/lib/linkedin/runner");
       ensureGlobalRunnerStarted();
+      const { startReplyScheduler } = await import("@/pilae/linkedin-replies/runtime");
+      startReplyScheduler();
     } catch (err) {
       console.error("[instrumentation] Failed to start runner:", err);
     }

@@ -1,3 +1,4 @@
+import { hasRunReply, syncPremium } from "@/pilae/linkedin-replies/runtime";
 import { recordCampaignOutcome } from "@/lib/campaign-metrics";
 import { getDb } from "@/lib/db";
 import { randomUUID } from "crypto";
@@ -479,7 +480,7 @@ async function executeStep(
 
   // Auto-unenroll if lead has replied on either channel — mark ALL track-runs for this profile skipped
   const replyCheck = db.prepare("SELECT last_replied_at, email_replied_at FROM targets WHERE id = ?").get(target.id) as { last_replied_at: string | null; email_replied_at: string | null };
-  if (replyCheck?.last_replied_at || replyCheck?.email_replied_at) {
+  if (replyCheck?.last_replied_at || replyCheck?.email_replied_at || hasRunReply(db, runId, target.id)) {
     const channel = replyCheck.email_replied_at ? "email" : "LinkedIn";
     log(db, runId, target.id, "info", `${target.full_name ?? target.linkedin_url} replied via ${channel} — unenrolling from workflow`);
     db.prepare(
@@ -1012,7 +1013,7 @@ async function tick(db: ReturnType<typeof getDb>): Promise<void> {
     if (premium?.replies?.shouldSyncInbox(accountId)) {
       try {
         console.log(`[runner] Starting LinkedIn inbox sync for account ${accountId}`);
-        const replies = await premium.replies.syncAccountInbox(accountId);
+        const replies = await syncPremium(accountId);
         console.log(`[runner] LinkedIn inbox sync complete — ${replies} new repl${replies === 1 ? "y" : "ies"}`);
         if (replies > 0) {
           for (const r of activeRuns.filter(x => x.account_id === accountId)) {

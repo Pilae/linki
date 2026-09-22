@@ -1,0 +1,27 @@
+name: Pilae upstream boundary
+on:
+  pull_request:
+    types: [opened, synchronize, reopened, labeled]
+permissions:
+  contents: read
+jobs:
+  boundary:
+    if: contains(github.event.pull_request.labels.*.name, 'upstream-candidate')
+    runs-on: ubuntu-latest
+    steps:
+      # Execute the guard from the trusted base, not from candidate-controlled code.
+      - uses: actions/checkout@v4
+        with:
+          ref: ${{ github.event.pull_request.base.sha }}
+          fetch-depth: 0
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+      - name: Fetch comparison refs and reject fork-only changes
+        env:
+          CANDIDATE: ${{ github.event.pull_request.head.sha }}
+        run: |
+          git fetch https://github.com/moaljumaa/linki.git main
+          BASE=$(git rev-parse FETCH_HEAD)
+          git fetch origin "$CANDIDATE"
+          node pilae/contributions/check-upstream.cjs "$BASE" "$CANDIDATE"
