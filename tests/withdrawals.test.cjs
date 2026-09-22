@@ -109,3 +109,28 @@ test('disable cancels even uncertain jobs without an action and preserves their 
  const db=fixture(t),p=provider(db,['ambiguous']);await processWithdrawals(db,'a',p,()=>now);
  store.configure(db,'w',{enabled:false,days:30},now);assert.equal(job(db).status,'cancelled');assert.equal(job(db).checks,1);
 });
+test('actual unenroll API cancels queued withdrawal, including terminal tracks and retry reset',async t=>{
+ for(const terminal of [false,true]){
+ const db=fixture(t);if(terminal)db.exec("UPDATE run_profile_tracks SET state='completed'");
+ const api=require('./load-withdrawals.cjs').loader({'@/lib/db':{getDb:()=>db}})('pages/api/runs/[id]/unenroll').default;
+ const res={status(n){this.code=n;return this},json(x){this.body=x;return this}};
+ api({method:'POST',query:{id:'r'},body:{target_id:'t'}},res);assert.equal(res.body.ok,true);assert.equal(job(db).status,'cancelled');
+ db.exec("UPDATE run_profile_tracks SET state='in_progress',error_message=NULL");
+ const p=provider(db);await processWithdrawals(db,'a',p,()=>now);assert.equal(p.clicks,0);assert.equal(p.reads,0);
+ }
+});
+test('legacy manual unenrollment is also a veto',async t=>{const db=fixture(t);db.exec("UPDATE run_profile_tracks SET state='skipped',error_message='Manually unenrolled'");const p=provider(db);await processWithdrawals(db,'a',p,()=>now);assert.equal(p.clicks,0)});
+test('disable committed before settings transaction requires a fresh explicit choice',t=>{
+ const db=fixture(t),tx=db.transaction.bind(db);let injected=false;
+ db.transaction=fn=>{const wrapped=tx(fn);return {...wrapped,immediate(...args){if(!injected){injected=true;db.prepare('UPDATE withdrawal_settings SET enabled=0').run()}return wrapped.immediate(...args)}}};
+ assert.throws(()=>store.configure(db,'w',{enabled:true,days:30},now),/Choose/);
+ assert.equal(store.settings(db,'w').enabled,0);
+});
+test('unresponsive read times out and releases the account lock without a click',async t=>{
+ const db=fixture(t);let closed=0;
+ const {readJson}=load('lib/withdrawals/linkedin');
+ const page={url:()=> 'https://www.linkedin.com/mynetwork/',locator:()=>({count:async()=>0}),evaluate:()=>new Promise(()=>{}),close:async()=>{closed++}};
+ const p={inspect:async()=>readJson(page,'/voyager/api/me',20),withdraw:async()=>assert.fail('must never click')};
+ await processWithdrawals(db,'a',p,()=>now);assert.equal(closed,1);assert.equal(job(db).status,'verification_required');
+ assert.equal(await withLinkedinExecution(db,'other',async()=>42),42);
+});

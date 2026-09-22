@@ -23,6 +23,8 @@ Every transition from disabled to enabled requires an explicit choice:
 Changing the delay recalculates queued eligibility from the original send time.
 Shortening it can make an already-included invitation immediately eligible.
 Disabling cancels work not yet started. Re-enabling requires the choice again.
+The previous setting is read inside the write transaction, so a concurrent disable
+cannot be undone by a stale delay save without a new explicit inclusion choice.
 A disabled setting never authorizes another withdrawal, including a retry.
 
 | Campaign state | Behavior |
@@ -32,12 +34,16 @@ A disabled setting never authorizes another withdrawal, including a retry.
 | Paused or not started | Suspend; resume recalculates eligibility |
 | Explicitly stopped or failed | Cancel; the run's durable stop marker remains even if restarted |
 | Archived | Cancel while archived; unarchiving reevaluates the existing policy |
+| Manually unenrolled prospect | Cancel; durable run/target opt-out survives track retries, including completed tracks |
 | Deleted run/workflow or removed enrollment | Cancel; keep invitation/queue/event audit records |
 
 Linki's existing Stop operation is `PATCH /api/runs/:id` with `status: completed`.
 That API now writes a separate stop marker; the runner's natural completion does
 not. Thus stop and completion are distinguishable without changing the legacy
-run-status CHECK constraint.
+run-status CHECK constraint. Manual Unenroll writes a separate durable run/target
+marker because the existing API retains the enrollment row. Legacy tracks marked
+“Manually unenrolled” also veto withdrawals. Retrying tracks in the same run does
+not clear this opt-out; there is no automatic re-enrollment into withdrawal.
 
 Disabling, stopping or deletion cannot undo an external action already started.
 Such jobs remain available for **read-only verification**, even after deletion;
@@ -110,6 +116,11 @@ This is intentionally more restrictive than independent account parallelism.
 Locks have no expiry: a stalled process cannot wake after lease takeover and act.
 A same-host PID proven dead can be recovered; live/PID-reused/foreign-host locks
 fail closed. A stranded live-process lock requires stopping that process first.
+Read-only provider requests have a 15-second browser abort and host deadline;
+snapshots share a 30-second total budget. Timeout closes the evidence page, rejects
+late responses and releases the execution lock through the worker cleanup path.
+An unresponsive optional pre-send snapshot can therefore fail that outreach step
+when its page closes, but cannot indefinitely block every account.
 Do not share this SQLite database between hosts or mix old and new worker builds.
 
 A crash after authorization leaves `action_started` durable. Restart changes
@@ -188,8 +199,17 @@ Do not treat this feature as a limit workaround or assume immediate reinvitation
 
 ## Remaining real-account validation
 
-This is a Pilae-only draft, not a production release. No account was connected,
-outreach sent, or real invitation withdrawn during development. Before enabling
+This is a Pilae-only draft, not a production release. After the synthetic checks,
+one specifically authorized invitation was withdrawn through the existing signed-in
+LinkedIn UI. The target-specific success notification and refreshed non-first-degree
+profile confirmed that manual result. No account was connected, outreach sent,
+campaign policy enabled, or service deployed.
+
+That invitation had no campaign-owned ledger record. This was a manual UI test,
+not a queue/provider end-to-end test; no ownership or timestamp was fabricated.
+The observed French UI uses a named withdrawal link and a target-specific dialog
+button, differing from the synthetic provider contract. Automatic compatibility
+remains unvalidated, and the implementation must continue to fail closed. Before enabling
 on a real account, verify the normalized schema, sender identity, timestamp units,
 pagination and exact invitation-row attributes using read-only observations with
 the owner's authorization. Unsupported contracts must remain blocked until
@@ -200,10 +220,12 @@ exercised synthetically; no claim of live LinkedIn compatibility is made.
 
 ## Delivery validation
 
-The withdrawal suite covers policy boundaries and invalid payloads, exact/accepted/
+The 42-test withdrawal suite covers policy boundaries and invalid payloads, exact/accepted/
 absent/ambiguous states, ownership conflicts, lifecycle changes, queue deduplication,
 SQLite lock contention, restart recovery, partial failures and bounded verification.
-It also tests the real schema/API handlers, the intercepted browser confirmation
+Regression cases cover actual manual unenrollment (including completed tracks and
+retry resets), a disable racing with a settings save, and a stalled browser read
+releasing the global/account lock without a click. It also tests the real schema/API handlers, the intercepted browser confirmation
 flow, and the exact Twenty extraction/reducer patch. Paused jobs are suspended
 outside the runnable batch so they cannot starve completed campaigns.
 

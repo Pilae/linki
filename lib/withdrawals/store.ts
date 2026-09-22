@@ -5,6 +5,7 @@ export const DAY = 86_400_000;
 export const MAX_ATTEMPTS = 3;
 export function initWithdrawals(db: Db) {
   db.exec(`
+    CREATE TABLE IF NOT EXISTS withdrawal_unenrollments (run_id TEXT NOT NULL, target_id TEXT NOT NULL, PRIMARY KEY(run_id,target_id));
     CREATE TABLE IF NOT EXISTS withdrawal_stopped_runs (run_id TEXT PRIMARY KEY);
     CREATE TABLE IF NOT EXISTS withdrawal_settings (
       workflow_id TEXT PRIMARY KEY REFERENCES workflows(id) ON DELETE CASCADE,
@@ -53,13 +54,13 @@ export function configure(db: Db, workflow: string, input: unknown, now = Date.n
   const v = input as { enabled?: unknown; days?: unknown; existing?: unknown } | null;
   if (!v || typeof v.enabled !== 'boolean' || !Number.isInteger(v.days) || (v.days as number) < 1 || (v.days as number) > 365)
     throw new Error('Use enabled: true/false and a whole number of days from 1 to 365.');
-  const old = settings(db, workflow);
-  if (v.enabled && !old.enabled && !['future_only', 'include_verified'].includes(v.existing as string))
-    throw new Error('Choose future_only or include_verified before enabling withdrawals.');
   if (v.existing !== undefined && !['future_only', 'include_verified'].includes(v.existing as string))
     throw new Error('Invalid existing-invitation choice.');
   db.transaction(() => {
     if (!db.prepare('SELECT id FROM workflows WHERE id=?').get(workflow)) throw new Error('Campaign not found.');
+    const old = settings(db, workflow);
+    if (v.enabled && !old.enabled && !['future_only', 'include_verified'].includes(v.existing as string))
+      throw new Error('Choose future_only or include_verified before enabling withdrawals.');
     const since = v.enabled && !old.enabled ? (v.existing === 'include_verified' ? 0 : now) : old.eligible_since;
     db.prepare(`INSERT INTO withdrawal_settings VALUES(?,?,?,?,1)
       ON CONFLICT(workflow_id) DO UPDATE SET enabled=excluded.enabled,days=excluded.days,
@@ -95,6 +96,10 @@ export function eligibility(db: Db, i: Invitation, now: number): { allowed: bool
     { status: string; account_id: string; workflow_id: string; is_archived: number; connected_at: string | null; degree: number | null; linkedin_url: string } | undefined;
   if (db.prepare('SELECT 1 FROM withdrawal_stopped_runs WHERE run_id=?').get(i.run_id)) return no('Campaign explicitly stopped');
   if (!owner || owner.is_archived || !['running','completed','paused','pending'].includes(owner.status)) return no('Campaign stopped, archived, deleted, or prospect removed');
+  if (db.prepare('SELECT 1 FROM withdrawal_unenrollments WHERE run_id=? AND target_id=?').get(i.run_id, i.target_id) ||
+      db.prepare(`SELECT 1 FROM run_profile_tracks rt JOIN run_profiles rp ON rp.id=rt.run_profile_id
+        WHERE rp.run_id=? AND rp.target_id=? AND rt.error_message='Manually unenrolled' LIMIT 1`).get(i.run_id, i.target_id))
+    return no('Prospect manually unenrolled');
   if (!s.enabled) return no('Withdrawals disabled');
   if (i.sent_at < s.eligible_since) return no('Existing invitation excluded');
   if (owner.account_id !== i.account_id || owner.workflow_id !== i.workflow_id || owner.linkedin_url !== i.profile_url) return no('Ownership changed');

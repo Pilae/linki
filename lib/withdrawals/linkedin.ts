@@ -36,37 +36,56 @@ async function wall(page: Page) {
   if (/\/(login|authwall|checkpoint|challenge|uas)(?:[/?#]|$)/i.test(page.url()) || await page.locator('input[type="password"]:visible').count())
     throw Error('LinkedIn authentication or verification required; complete it manually');
 }
-async function readJson(page: Page, path: string): Promise<unknown> {
-  await wall(page);
-  return page.evaluate(async path => {
-    const csrf = document.cookie.split('; ').find(x => x.startsWith('JSESSIONID='))?.slice(11).replace(/"/g, '');
-    if (!csrf) throw Error('Missing authenticated session');
-    const r = await fetch(path, { credentials: 'include', cache: 'no-store', headers: { 'csrf-token': csrf, accept: 'application/vnd.linkedin.normalized+json+2.1', 'x-restli-protocol-version': '2.0.0' } });
-    if (!r.ok || r.redirected) throw Error('Invitation verification unavailable');
-    return r.json();
-  }, path);
+export async function readJson(page: Page, path: string, timeoutMs = 15_000): Promise<unknown> {
+  if (timeoutMs <= 0) throw Error('Invitation verification deadline exceeded');
+  let timer: ReturnType<typeof setTimeout> | undefined;
+  try {
+    // Both a browser AbortSignal (headers AND body) and a host deadline: an
+    // unresponsive renderer must not hold the non-expiring execution lock forever.
+    return await Promise.race([
+      (async () => {
+        await wall(page);
+        return page.evaluate(async ({ path, timeoutMs }) => {
+          const csrf = document.cookie.split('; ').find(x => x.startsWith('JSESSIONID='))?.slice(11).replace(/"/g, '');
+          if (!csrf) throw Error('Missing authenticated session');
+          const r = await fetch(path, { signal: AbortSignal.timeout(timeoutMs), credentials: 'include', cache: 'no-store', headers: { 'csrf-token': csrf, accept: 'application/vnd.linkedin.normalized+json+2.1', 'x-restli-protocol-version': '2.0.0' } });
+          if (!r.ok || r.redirected) throw Error('Invitation verification unavailable');
+          return await r.json();
+        }, { path, timeoutMs });
+      })(),
+      new Promise<never>((_, reject) => {
+        timer = setTimeout(() => {
+          // Only read-only work can outlive this deadline. Close its page and never
+          // retain a late response as evidence; no click lives in this promise.
+          void page.close().catch(() => {});
+          reject(Error('Invitation verification timed out'));
+        }, timeoutMs);
+      }),
+    ]);
+  } finally { if (timer) clearTimeout(timer); }
 }
-async function readSender(page: Page): Promise<string> {
-  const me = await readJson(page, '/voyager/api/me') as { data?: { miniProfile?: { entityUrn?: string }; '*miniProfile'?: string }; miniProfile?: { entityUrn?: string } };
+async function readSender(page: Page, timeoutMs = 15_000): Promise<string> {
+  const me = await readJson(page, '/voyager/api/me', timeoutMs) as { data?: { miniProfile?: { entityUrn?: string }; '*miniProfile'?: string }; miniProfile?: { entityUrn?: string } };
   const sender = me.data?.miniProfile?.entityUrn || me.data?.['*miniProfile'] || me.miniProfile?.entityUrn;
   if (!sender?.startsWith('urn:li:fs_miniProfile:')) throw Error('Sending account identity unavailable');
   return sender;
 }
 export async function readSnapshot(page: Page, navigate = true): Promise<Snapshot> {
   const started = Date.now();
+  const budget = () => Math.min(15_000, 30_000 - (Date.now() - started));
   if (navigate) await page.goto(SENT, { waitUntil: 'domcontentloaded', timeout: 30000 });
-  const sender = await readSender(page);
+  const sender = await readSender(page, budget());
   const invitations: RemoteInvitation[] = [];
   let total: number | undefined;
   for (let start = 0; start < 2000; start += 100) {
     const parsed = parseInvitationPage(await readJson(page,
-      `/voyager/api/relationships/sentInvitationViewsV2?count=100&invitationType=CONNECTION&q=invitationType&start=${start}`), sender, start);
+      `/voyager/api/relationships/sentInvitationViewsV2?count=100&invitationType=CONNECTION&q=invitationType&start=${start}`, budget()), sender, start);
     if (total !== undefined && total !== parsed.total) throw Error('Invitation list changed during verification');
     total = parsed.total;
     invitations.push(...parsed.invitations);
     if (new Set(invitations.map(i => i.invitation_urn)).size !== invitations.length) throw Error('Duplicate invitation identity');
     if (invitations.length === total) {
-      if (await readSender(page) !== sender) throw Error('Account changed during invitation verification');
+      if (await readSender(page, budget()) !== sender) throw Error('Account changed during invitation verification');
       if (Date.now() - started >= 30_000) throw Error('Invitation snapshot too old; verify again later');
       return { sender_urn: sender, invitations };
     }
