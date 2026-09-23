@@ -1,3 +1,4 @@
+import { reconcile } from "@/lib/withdrawals/store";
 import type { NextApiRequest, NextApiResponse } from "next";
 import { getDb } from "@/lib/db";
 
@@ -33,6 +34,7 @@ export default function handler(req: NextApiRequest, res: NextApiResponse) {
         "UPDATE workflows SET name = COALESCE(?, name), description = COALESCE(?, description) WHERE id = ?"
       ).run(name ?? null, description ?? null, id);
     }
+    reconcile(db);
     return res.json(db.prepare("SELECT * FROM workflows WHERE id = ?").get(id));
   }
 
@@ -41,12 +43,14 @@ export default function handler(req: NextApiRequest, res: NextApiResponse) {
     if (is_archived !== undefined) {
       db.prepare("UPDATE workflows SET is_archived = ? WHERE id = ?").run(is_archived ? 1 : 0, id);
     }
+    reconcile(db);
     return res.json(db.prepare("SELECT * FROM workflows WHERE id = ?").get(id));
   }
 
   if (req.method === "DELETE") {
     db.prepare("DELETE FROM runs WHERE workflow_id = ?").run(id);
     db.prepare("DELETE FROM workflows WHERE id = ?").run(id);
+    reconcile(db);
     return res.json({ ok: true });
   }
 

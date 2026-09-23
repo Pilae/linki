@@ -1,4 +1,5 @@
 import Database from "better-sqlite3";
+import { initWithdrawals } from "./withdrawals/store";
 import path from "path";
 import { randomUUID } from "crypto";
 import { scheduleUpdateCheck } from "@/lib/update-check";
@@ -15,6 +16,7 @@ export function getDb(): Database.Database {
     db.pragma("foreign_keys = ON");
     initDb(db);
     runMigrations(db);
+    initWithdrawals(db);
     scheduleUpdateCheck();
   }
   return db;

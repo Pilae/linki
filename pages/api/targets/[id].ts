@@ -17,7 +17,8 @@ export default function handler(req: NextApiRequest, res: NextApiResponse) {
       ORDER BY l.name COLLATE NOCASE
     `).all(id);
 
-    return res.json({ ...target as object, company: company ?? null, lists });
+    const withdrawal_events = db.prepare('SELECT * FROM invitation_withdrawal_events WHERE target_id=? ORDER BY occurred_at,id').all(id);
+    return res.json({ ...target as object, company: company ?? null, lists, withdrawal_events });
   }
 
   if (req.method === "PATCH") {

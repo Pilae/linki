@@ -1,3 +1,4 @@
+import { reconcile } from "@/lib/withdrawals/store";
 import type { NextApiRequest, NextApiResponse } from "next";
 import { getDb } from "@/lib/db";
 
@@ -17,14 +18,15 @@ export default function handler(req: NextApiRequest, res: NextApiResponse) {
 
   if (!rp) return res.status(404).json({ error: "Profile not found" });
 
-  const result = db.prepare(
-    `UPDATE run_profile_tracks SET state = 'skipped', error_message = 'Manually unenrolled'
-     WHERE run_profile_id = ? AND state IN ('pending', 'in_progress')`
-  ).run(rp.id);
-
-  if (result.changes === 0) {
-    return res.status(404).json({ error: "Profile not found or already completed/skipped" });
-  }
+  db.transaction(() => {
+    // Durable opt-out survives terminal tracks and manual retry/reset operations.
+    db.prepare('INSERT OR IGNORE INTO withdrawal_unenrollments VALUES(?,?)').run(runId, target_id);
+    db.prepare(
+      `UPDATE run_profile_tracks SET state = 'skipped', error_message = 'Manually unenrolled'
+       WHERE run_profile_id = ? AND state IN ('pending', 'in_progress')`
+    ).run(rp.id);
+    reconcile(db);
+  }).immediate();
 
   return res.json({ ok: true });
 }

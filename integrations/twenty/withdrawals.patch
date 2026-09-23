@@ -1,0 +1,43 @@
+--- a/adapter/core.mjs
++++ b/adapter/core.mjs
+@@ -87,7 +87,7 @@
+     const target=await linki(`/targets/${a.target_id}`);const progress=[];
+     for(const r of runs){const detail=await linki(`/runs/${r.id}?target_id=${encodeURIComponent(a.target_id)}&limit=1`);progress.push({id:r.id,status:r.status,profiles:detail.profiles,logs:detail.logs?.filter(l=>l.target_id===a.target_id)});}
+     const reply=inbox.replies?.find(r=>r.id===a.target_id);
+-    const next={reply:reply?{channel:reply.channel,replied_at:reply.replied_at,summary:reply.reply_summary||null,body:reply.reply_body||null}:null,connected_at:target.connected_at||null,connection_requested_at:target.connection_requested_at||null,message_sent_at:target.message_sent_at||null,inmail_sent_at:target.inmail_sent_at||null,last_replied_at:target.last_replied_at||null,email_replied_at:target.email_replied_at||null,progress,synced_at:new Date().toISOString()};
++    const next={withdrawal_events:target.withdrawal_events||[],reply:reply?{channel:reply.channel,replied_at:reply.replied_at,summary:reply.reply_summary||null,body:reply.reply_body||null}:null,connected_at:target.connected_at||null,connection_requested_at:target.connection_requested_at||null,message_sent_at:target.message_sent_at||null,inmail_sent_at:target.inmail_sent_at||null,last_replied_at:target.last_replied_at||null,email_replied_at:target.email_replied_at||null,progress,synced_at:new Date().toISOString()};
+     for(const e of extractEvents(a.person_id,a.target_id,next)){run('INSERT OR IGNORE INTO events VALUES(?,?,?,?,?,?,?)',e.id,e.source_key,e.person_id,e.channel,e.kind,e.occurred_at,e.body);}
+     run('UPDATE audience SET snapshot=? WHERE campaign_id=? AND person_id=?',JSON.stringify(next),c.id,a.person_id);
+    }
+--- a/adapter/events.mjs
++++ b/adapter/events.mjs
+@@ -4,6 +4,15 @@
+ export function extractEvents(personId,targetId,s){
+  const events=[];
+  const add=(channel,kind,at,body,key)=>{if(!at)return;const d=new Date(/Z$|[+-]\d\d:\d\d$/.test(at)?at:at.replace(' ','T')+'Z');if(!Number.isFinite(+d))return;const source_key=`linki:${targetId}:${key}`;events.push({id:eventId(source_key),source_key,person_id:personId,channel,kind,occurred_at:d.toISOString(),body});};
++ // Withdrawal events are campaign/account-scoped facts, never generic outbound sends.
++ for(const e of s.withdrawal_events||[]){
++  if(e.target_id!==targetId||!e.account_id||!e.workflow_id||!e.invitation_id||
++    !['invitation_withdrawn','invitation_absent','invitation_withdrawal_verification_required'].includes(e.kind)||
++    !Number.isSafeInteger(e.occurred_at)||e.occurred_at<=0)continue;
++  add('linkedin',e.kind,new Date(e.occurred_at).toISOString(),
++   `${e.body} Campaign: ${e.workflow_id}; account: ${e.account_id}.`,
++   `withdrawal:${e.account_id}:${e.invitation_id}:${e.kind}`);
++ }
+  add('linkedin','invitation_sent',s.connection_requested_at,'Connection invitation recorded by Linki.','invitation:'+s.connection_requested_at);
+  add('linkedin','connection_accepted',s.connected_at,'Connection detected by Linki; this may be an existing connection, not a newly accepted invitation.','connected:'+s.connected_at);
+  add('linkedin','outbound_sent',s.message_sent_at,'LinkedIn message sent. Message text is unavailable from this endpoint.','message:'+s.message_sent_at);
+--- a/src/shared/outreach-rules.ts
++++ b/src/shared/outreach-rules.ts
+@@ -5,6 +5,11 @@
+  let outbound=person.outreachLastOutboundAt,inbound=person.outreachLastInboundAt,contact=person.outreachLastContactAt,connection=person.linkedinConnectionState;
+  const ordered=[...events].sort((a,b)=>a.occurred_at.localeCompare(b.occurred_at)||a.id.localeCompare(b.id));
+  for(const e of ordered){const c={...(channels[e.channel]||{})};
++  // Keep withdrawal history scoped to LinkedIn. Do not reset a shared connection
++  // field: it may describe another account, or a newer accepted connection.
++  if(e.channel==='linkedin'&&['invitation_withdrawn','invitation_absent','invitation_withdrawal_verification_required'].includes(e.kind)){
++   c.withdrawalEvents={...(c.withdrawalEvents||{}),[e.id]:{kind:e.kind,at:e.occurred_at,body:e.body}};
++  }
+   if(e.kind==='outbound_sent'){outbound=maxDate(outbound,e.occurred_at);c.lastOutboundAt=maxDate(c.lastOutboundAt,e.occurred_at);}
+   if(e.kind==='reply_received'){inbound=maxDate(inbound,e.occurred_at);c.lastInboundAt=maxDate(c.lastInboundAt,e.occurred_at);}
+   if(e.kind==='connection_accepted'){connection='CONNECTED';c.connectionAcceptedAt=maxDate(c.connectionAcceptedAt,e.occurred_at);}
