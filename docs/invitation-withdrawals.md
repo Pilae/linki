@@ -78,7 +78,8 @@ schema (`*elements`, `*fromMember`, `*toMember`, and `invitee.*miniProfile`), pl
 original explicit-total fixture contract. It resolves references and requires a
 unique sender, recipient, invitation entity URN and provider timestamp. It does
 not conflate `mailboxItemId` with the invitation entity URN or use message secrets.
-Unknown/missing recipient references reject the entire snapshot, not just that row.
+Unknown/missing member references reject the entire snapshot. The explicitly observed
+`EmailInvitee` variant is counted separately and is never actionable; see below.
 
 For the observed schema, completeness requires the visible People/Personnes count,
 all pages through an explicit empty terminal page, and a second identical full
@@ -96,8 +97,9 @@ rows; failure to load or ambiguity stops the attempt. The provider repeats the
 snapshot before opening the dialog and immediately before authorization.
 
 The response and DOM contracts are unofficial. Read-only validation has verified
-member records and row resolution, but **full-account verification remains blocked
-on the observed account by two invitations with unresolved recipient references**.
+member records and row resolution. The two previously unresolved records are now
+recognized as email-address invitations, retained for completeness checks but
+excluded from member actions.
 No provider-driven real withdrawal has been tested. Unsupported actions/languages,
 authentication or CAPTCHA walls and ambiguous profile cards stop the action.
 No name-only, sidebar, profile Pending or Remove connection fallback exists.
@@ -227,9 +229,9 @@ campaign policy enabled, or service deployed.
 That invitation had no campaign-owned ledger record. This was a manual UI test,
 not a queue/provider end-to-end test; no ownership or timestamp was fabricated.
 The first read-only probe identified incompatible response/DOM contracts. The
-2026-09-23 revision adds the observed member schema and row binding; the follow-up
-probe still rejects full-account verification because two records lack recipient
-references. Keep this account's automation disabled. No existing invitation was
+2026-09-23 revisions add the observed member schema, row binding and safe
+classification of email invitations. Keep automation disabled until the remaining
+explicitly authorized live end-to-end validation is complete. No existing invitation was
 adopted into a campaign. Further live withdrawal requires explicit approval naming
 that specific invitation and sending account.
 Acceptance-versus-withdrawal races and post-action consistency have only been
@@ -237,7 +239,7 @@ exercised synthetically; no claim of live LinkedIn compatibility is made.
 
 ## Delivery validation
 
-The 63-test withdrawal suite covers policy boundaries and invalid payloads, exact/accepted/
+The 68-test withdrawal suite covers policy boundaries and invalid payloads, exact/accepted/
 absent/ambiguous states, ownership conflicts, lifecycle changes, queue deduplication,
 SQLite lock contention, restart recovery, partial failures and bounded verification.
 Regression cases cover actual manual unenrollment (including completed tracks and
@@ -320,3 +322,39 @@ A successful first page or row binding is insufficient for dry-run scheduling or
 live enablement. Resolving the remaining recipient variant requires reliable
 identity evidence; filtering those records out is not an acceptable workaround.
 The end-to-end live queue/provider and post-action consistency remain unvalidated.
+
+## Email invitation handling and isolated scheduling dry run
+
+Only the observed `com.linkedin.voyager.relationships.invitation.EmailInvitee`
+shape is classified separately: a valid email, explicit null `toMember`, no member
+reference, verified sender, stable invitation ID and valid send timestamp are
+required. Contradictory fields, unknown recipient types or malformed data still
+reject the snapshot. Email invitation IDs and hashed recipient values participate
+in two-pass equality, duplicate-ID checks and the visible total count. Raw email
+addresses are not retained in the snapshot or campaign ledger.
+
+Email invitations are never withdrawal candidates and cannot create campaign
+ownership. A previously tracked member invitation whose ID appears in the email
+category is ambiguous, not absent. A member record reusing a preexisting email
+invitation ID cannot be adopted by the post-send evidence collector. Unrelated
+member invitations can now be verified without treating the email records as
+missing data. This does not establish that an email address belongs to a particular
+member and does not merge their identities.
+
+The actual runner maintenance function is exercised in an isolated SQLite dry
+run with a synthetic provider and an audit-only action replacement. It verifies
+no selection before the delay or outside account hours/working days, continued
+selection after natural campaign completion, authentication gating, disable
+cancellation, duplicate-tick backoff, and acceptance reconciliation after reopening
+the database. No production runner, session or invitation is used. The audit
+replacement deliberately raises an unconfirmed outcome instead of manufacturing
+withdrawal success. Existing queue tests separately cover locks and partial effects.
+Run `npm run test:withdrawals` to reproduce all 68 tests.
+
+The follow-up read-only probe on 2026-09-23 passed full-account verification:
+151 member invitations and 2 excluded email invitations agreed across both scans
+and the visible total. Sender verification and unique named row resolution passed
+with `fullSnapshot: true`. The database was read-only and non-GET requests were
+blocked; no worker or withdrawal function was called. This establishes bounded
+read-only compatibility for this account, not a live automatic withdrawal or a
+successful post-action result. The earlier blocked results above are historical.

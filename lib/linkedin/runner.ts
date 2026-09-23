@@ -1,4 +1,5 @@
-import { recordInvitation, reconcile } from "@/lib/withdrawals/store";
+import { isWithinSchedule, runWithdrawalMaintenance } from '@/lib/withdrawals/scheduler';
+import { recordInvitation } from "@/lib/withdrawals/store";
 import { readSnapshot, newSentInvitation, LinkedinWithdrawalProvider } from "@/lib/withdrawals/linkedin";
 import { processWithdrawals } from "@/lib/withdrawals/worker";
 import { withLinkedinExecution } from "@/lib/withdrawals/lock";
@@ -80,14 +81,6 @@ function getLocalParts(tz: string, date = new Date()): { hour: number; minute: n
   const minute = parseInt(get("minute"), 10);
   const weekdayMap: Record<string, number> = { Mon: 1, Tue: 2, Wed: 3, Thu: 4, Fri: 5, Sat: 6, Sun: 7 };
   return { hour, minute, isoWeekday: weekdayMap[get("weekday")] ?? 1 };
-}
-
-function isWithinSchedule(account: ScheduleConfig): boolean {
-  const { hour, minute, isoWeekday } = getLocalParts(account.timezone || "UTC");
-  const allowedDays = (account.working_days || "1,2,3,4,5").split(",").map(Number);
-  if (!allowedDays.includes(isoWeekday)) return false;
-  const frac = hour + minute / 60;
-  return frac >= (account.active_hours_start ?? 9) && frac < (account.active_hours_end ?? 18);
 }
 
 function randomSlotInActiveWindow(account: ScheduleConfig, targetDate?: Date): string {
@@ -987,24 +980,18 @@ async function globalLoop(): Promise<void> {
 
 async function tick(db: ReturnType<typeof getDb>): Promise<void> {
   // Maintenance is independent of active outreach, including completed campaigns.
-  reconcile(db);
-  const withdrawalAccounts = db.prepare(`SELECT DISTINCT a.id,a.active_hours_start,a.active_hours_end,a.timezone,a.working_days FROM accounts a
-    JOIN invitation_withdrawals j ON j.account_id=a.id
-    WHERE a.is_authenticated=1 AND j.status IN ('queued','checking','verification_required')
-    AND j.due_at<=? AND j.next_check_at<=? AND (j.checks<6 OR j.status='checking')`).all(Date.now(), Date.now()) as Array<{ id: string } & ScheduleConfig>;
-  for (const account of withdrawalAccounts) {
-    if (!isWithinSchedule(account)) continue;
+  await runWithdrawalMaintenance(db, async accountId => {
     // Lazy page: the provider is never opened when policy/lifecycle denies execution.
     let page: Awaited<ReturnType<typeof getSessionPage>> | undefined;
-    const provider = async () => new LinkedinWithdrawalProvider(page ??= await getSessionPage(account.id));
+    const provider = async () => new LinkedinWithdrawalProvider(page ??= await getSessionPage(accountId));
     try {
-      await processWithdrawals(db, account.id, {
+      await processWithdrawals(db, accountId, {
         inspect: async i => (await provider()).inspect(i),
         withdraw: async (i, authorize) => (await provider()).withdraw(i, authorize),
       });
     } catch (e) { console.warn('[withdrawals]', e instanceof Error ? e.message : e); }
     finally { if (page) await page.close().catch(() => {}); }
-  }
+  });
   const activeRuns = db.prepare(`
     SELECT r.id as run_id, r.workflow_id, r.account_id, r.email_account_id,
            a.daily_connection_limit, a.daily_message_limit, a.daily_inmail_limit,

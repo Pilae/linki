@@ -32,7 +32,7 @@ const report = { at: new Date().toISOString(), readOnly: true, blockedNonGet: 0 
     let snapshot;
     try {
       snapshot = await readSnapshot(page, false);
-      report.snapshot = { valid: true, count: snapshot.invitations.length };
+      report.snapshot = { valid: true, memberCount: snapshot.invitations.length, excludedEmailCount: snapshot.excludedEmails.length };
     } catch (e) {
       report.snapshot = { valid: false, error: e.message };
     }

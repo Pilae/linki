@@ -1,3 +1,4 @@
+import { createHash } from 'crypto';
 import type { Page } from 'playwright';
 import { getConnectionProfileCard } from '../linkedin/connect';
 import { linkedinLabel } from '../linkedin/labels';
@@ -5,7 +6,8 @@ import { hasCaptchaSignal } from '../linkedin/login-signals';
 import type { Invitation } from './store';
 import type { Observation, WithdrawalProvider } from './worker';
 export interface RemoteInvitation { invitation_urn: string; sender_urn: string; recipient_urn: string; sent_at: number; profile_url: string }
-export interface Snapshot { sender_urn: string; invitations: RemoteInvitation[] }
+export interface ExcludedEmail { invitation_urn: string; sender_urn: string; sent_at: number; recipient_hash: string }
+export interface Snapshot { sender_urn: string; invitations: RemoteInvitation[]; excludedEmails?: ExcludedEmail[] }
 const SENT = 'https://www.linkedin.com/mynetwork/invitation-manager/sent/';
 const canonical = (s: string) => { const u = new URL(s); if (!['www.linkedin.com','linkedin.com'].includes(u.hostname) || !/^\/in\/[^/]+\/?$/.test(u.pathname)) throw Error('Unsupported recipient URL'); return `https://www.linkedin.com${u.pathname.replace(/\/$/, '')}`; };
 const urn = (x: unknown): string => typeof x === 'string' ? x : '';
@@ -15,11 +17,14 @@ type Entity = Record<string, unknown>;
 export function parseInvitationPage(json: unknown, sender: string, start: number) {
   const j = json as { data?: Entity; included?: Entity[] };
   const data = j?.data, paging = data?.paging as Entity | undefined;
-  const live = !!data && Object.hasOwn(data, '*elements');
-  const refs = data?.[live ? '*elements' : 'elements'];
+  const emptyLive = data?.$type === 'com.linkedin.restli.common.CollectionResponse' &&
+    !Object.hasOwn(data, '*elements') && Array.isArray(data.elements) && !data.elements.length &&
+    Array.isArray(j.included) && !j.included.length && paging?.count === 100 && paging.total === undefined;
+  const live = !!data && (Object.hasOwn(data, '*elements') || emptyLive);
+  const refs = data?.[live && !emptyLive ? '*elements' : 'elements'];
   const total = paging?.total;
   if (!data || !Array.isArray(refs) || !Array.isArray(j.included) || paging?.start !== start ||
-      refs.length > 100 || (live && (Object.hasOwn(data, 'elements') || paging.count !== 100)) ||
+      refs.length > 100 || (live && ((!emptyLive && Object.hasOwn(data, 'elements')) || paging.count !== 100)) ||
       (!live && (!Number.isSafeInteger(total) || (total as number) < 0)) ||
       (total !== undefined && (!Number.isSafeInteger(total) || (total as number) < 0)))
     throw Error('Unrecognized sent-invitations response');
@@ -28,6 +33,7 @@ export function parseInvitationPage(json: unknown, sender: string, start: number
   const byUrn = new Map(j.included.map(e => [urn(e?.entityUrn), e]));
   if (byUrn.size !== j.included.length || byUrn.has('')) throw Error('Ambiguous invitation entities');
   const invitations: RemoteInvitation[] = [];
+  const excludedEmails: ExcludedEmail[] = [];
   for (const ref of refs) {
     const view = typeof ref === 'string' ? byUrn.get(ref) : ref as Entity;
     if (live && (!view || view.$type !== 'com.linkedin.voyager.relationships.invitation.SentInvitationViewV2' ||
@@ -38,6 +44,21 @@ export function parseInvitationPage(json: unknown, sender: string, start: number
     const senderUrn = urn(live ? item['*fromMember'] : item['*inviter'] || item.inviter);
     const recipientUrn = urn(live ? item['*toMember'] : item['*invitee'] || item.invitee);
     const recipient = byUrn.get(recipientUrn), sent = item.sentTime;
+    const invitee = item.invitee as Entity | undefined;
+    if (live && invitee?.$type === 'com.linkedin.voyager.relationships.invitation.EmailInvitee') {
+      if (senderUrn !== sender || !senderUrn.startsWith('urn:li:fs_miniProfile:') ||
+          item.toMember !== null || Object.hasOwn(item, '*toMember') || Object.hasOwn(invitee, '*miniProfile') ||
+          Object.keys(invitee).some(k => !['email', '$type'].includes(k)) ||
+          typeof invitee.email !== 'string' || !/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(invitee.email) ||
+          !urn(item.entityUrn).startsWith('urn:li:fs_relInvitation:') || !urn(item.mailboxItemId).startsWith('urn:li:invitation:') ||
+          !Number.isSafeInteger(sent) || (sent as number) <= 0 || (sent as number) > Date.now())
+        throw Error('Ambiguous email invitation');
+      // Retain identity/count/consistency evidence, never an actionable recipient.
+      excludedEmails.push({ invitation_urn: urn(item.entityUrn), sender_urn: senderUrn, sent_at: sent as number,
+        recipient_hash: createHash('sha256').update(invitee.email).digest('hex') });
+      continue;
+    }
+
     if (senderUrn !== sender || !senderUrn.startsWith('urn:li:fs_miniProfile:') ||
         !recipientUrn.startsWith('urn:li:fs_miniProfile:') || !recipient || typeof recipient.publicIdentifier !== 'string' ||
         !recipient.publicIdentifier || !Number.isSafeInteger(sent) || (sent as number) <= 0 ||
@@ -49,7 +70,7 @@ export function parseInvitationPage(json: unknown, sender: string, start: number
     invitations.push({ invitation_urn: urn(item.entityUrn), sender_urn: senderUrn, recipient_urn: recipientUrn,
       sent_at: sent as number, profile_url: canonical(`https://www.linkedin.com/in/${encodeURIComponent(recipient.publicIdentifier)}`) });
   }
-  return { invitations, total: total as number | undefined, live };
+  return { invitations, excludedEmails, total: total as number | undefined, live };
 }
 async function wall(page: Page) {
   if (/\/(login|authwall|checkpoint|challenge|uas)(?:[/?#]|$)/i.test(page.url()) || await page.locator('input[type="password"]:visible').count() || await hasCaptchaSignal(page))
@@ -111,6 +132,7 @@ export async function readSnapshot(page: Page, navigate = true): Promise<Snapsho
   let schema: boolean | undefined;
   const scan = async () => {
     const invitations: RemoteInvitation[] = [];
+    const excludedEmails: ExcludedEmail[] = [];
     let expected: number | undefined, terminal = false;
     for (let start = 0; start < 2000; start += 100) {
       const parsed = parseInvitationPage(await readJson(page,
@@ -121,14 +143,17 @@ export async function readSnapshot(page: Page, navigate = true): Promise<Snapsho
       if (expected !== undefined && expected !== count) throw Error('Invitation count changed');
       expected = count;
       if (parsed.total !== undefined && parsed.total !== expected) throw Error('Invitation count disagrees');
-      if (terminal && parsed.invitations.length) throw Error('Invitation pagination did not terminate');
+      if (terminal && parsed.invitations.length + parsed.excludedEmails.length) throw Error('Invitation pagination did not terminate');
       invitations.push(...parsed.invitations);
-      if (invitations.length > expected) throw Error('Invitation count disagrees');
-      if (!parsed.invitations.length) {
-        if (invitations.length !== expected) throw Error('Incomplete invitation list');
-        return invitations;
+      excludedEmails.push(...parsed.excludedEmails);
+      const length = invitations.length + excludedEmails.length;
+      const pageLength = parsed.invitations.length + parsed.excludedEmails.length;
+      if (length > expected) throw Error('Invitation count disagrees');
+      if (!pageLength) {
+        if (length !== expected) throw Error('Incomplete invitation list');
+        return { invitations, excludedEmails };
       }
-      terminal = parsed.invitations.length < 100;
+      terminal = pageLength < 100;
     }
     throw Error('Invitation verification page limit reached');
   };
@@ -137,20 +162,23 @@ export async function readSnapshot(page: Page, navigate = true): Promise<Snapsho
   const first = await scan(), second = await scan();
   if (JSON.stringify(first) !== JSON.stringify(second)) throw Error('Invitation list changed during verification');
   for (const key of ['invitation_urn', 'recipient_urn', 'profile_url'] as const) {
-    if (new Set(first.map(i => i[key])).size !== first.length) throw Error('Duplicate invitation identity or recipient');
+    if (new Set(first.invitations.map(i => i[key])).size !== first.invitations.length) throw Error('Duplicate invitation identity or recipient');
   }
+  const ids = [...first.invitations, ...first.excludedEmails].map(i => i.invitation_urn);
+  if (new Set(ids).size !== ids.length) throw Error('Duplicate member/email invitation identity');
   if (await readSender(page, budget()) !== sender) throw Error('Account changed during invitation verification');
   if (Date.now() - started >= 30_000) throw Error('Invitation snapshot too old; verify again later');
-  return { sender_urn: sender, invitations: first };
+  return { sender_urn: sender, ...first };
 }
 export function newSentInvitation(before: Snapshot, after: Snapshot, url: string, started: number, ended: number) {
   if (before.sender_urn !== after.sender_urn) return null;
   const profile = canonical(url);
   if (before.invitations.some(i => i.profile_url === profile)) return null;
-  const found = after.invitations.filter(i => i.profile_url === profile && !before.invitations.some(b => b.invitation_urn === i.invitation_urn));
+  const found = after.invitations.filter(i => i.profile_url === profile && !before.invitations.some(b => b.invitation_urn === i.invitation_urn) && !before.excludedEmails?.some(b => b.invitation_urn === i.invitation_urn));
   return found.length === 1 && found[0].sent_at >= started && found[0].sent_at <= ended ? found[0] : null;
 }
 function exactInvitation(snap: Snapshot, i: RemoteInvitation) {
+  if (snap.excludedEmails?.some(x => x.invitation_urn === i.invitation_urn)) throw Error('Invitation is email-only, not actionable');
   const matches = snap.invitations.filter(x => x.invitation_urn === i.invitation_urn ||
     x.recipient_urn === i.recipient_urn || canonical(x.profile_url) === canonical(i.profile_url));
   if (snap.sender_urn !== i.sender_urn || matches.length !== 1 ||
@@ -178,7 +206,7 @@ export async function findWithdrawalControl(page: Page, i: RemoteInvitation, sna
     // Load only the normal visible list; never guess hidden component/request IDs.
     for (let batch = 0; await row.count() === 0 && batch < 20; batch++) {
       const loaded = await rows.count();
-      if (!loaded || loaded >= snap.invitations.length || loaded >= 2000) break;
+      if (!loaded || loaded >= snap.invitations.length + (snap.excludedEmails?.length || 0) || loaded >= 2000) break;
       await rows.last().scrollIntoViewIfNeeded({ timeout: 3000 });
       try {
         await page.waitForFunction(n => document.querySelectorAll('[data-testid="lazy-column"][data-component-type="LazyColumn"] [role="listitem"]').length > n,
@@ -227,7 +255,7 @@ export class LinkedinWithdrawalProvider implements WithdrawalProvider {
     // Absence alone cannot distinguish acceptance from withdrawal: require a positive
     // non-first-degree badge in the exact profile header as well as the complete list.
     const nonConnection = card.getByText(linkedinLabel('otherDegree')).filter({ visible: true });
-    if (!exact.length && !snap.invitations.some(x => x.recipient_urn === i.recipient_urn || canonical(x.profile_url) === canonical(i.profile_url)) && await nonConnection.count() === 1)
+    if (!exact.length && !snap.excludedEmails?.some(x => x.invitation_urn === i.invitation_urn) && !snap.invitations.some(x => x.recipient_urn === i.recipient_urn || canonical(x.profile_url) === canonical(i.profile_url)) && await nonConnection.count() === 1)
       return { ...base, state: 'absent' };
     return { ...base, state: 'ambiguous' };
   }

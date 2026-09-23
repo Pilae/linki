@@ -134,3 +134,31 @@ test('unresponsive read times out and releases the account lock without a click'
  await processWithdrawals(db,'a',p,()=>now);assert.equal(closed,1);assert.equal(job(db).status,'verification_required');
  assert.equal(await withLinkedinExecution(db,'other',async()=>42),42);
 });
+test('actual maintenance scheduler dry run: due boundary, schedule, completion, disable and restart',async t=>{
+ const {runWithdrawalMaintenance}=load('lib/withdrawals/scheduler');
+ const dir=mkdtempSync(join(tmpdir(),'withdrawal-scheduling-'));t.after(()=>rmSync(dir,{recursive:true,force:true}));const file=join(dir,'synthetic.db');
+ let db=fixture(t,file);db.exec(`ALTER TABLE accounts ADD COLUMN is_authenticated INTEGER DEFAULT 1;
+ ALTER TABLE accounts ADD COLUMN active_hours_start INTEGER DEFAULT 9; ALTER TABLE accounts ADD COLUMN active_hours_end INTEGER DEFAULT 18;
+ ALTER TABLE accounts ADD COLUMN timezone TEXT DEFAULT 'UTC'; ALTER TABLE accounts ADD COLUMN working_days TEXT DEFAULT '1,2,3,4,5';
+ UPDATE runs SET status='completed';`);
+ const audit=[];let time=now-1,state='pending';
+ const runAccount=async id=>processWithdrawals(db,id,{
+ inspect:async i=>{audit.push('inspect:'+id);return {...i,state,checked_at:time}},
+ withdraw:async()=>{audit.push('would-withdraw:'+id);throw Error('Synthetic dry run: no external effect')}
+ },()=>time);
+ await runWithdrawalMaintenance(db,runAccount,()=>time);assert.deepEqual(audit,[]);
+ time=now;db.exec('UPDATE accounts SET active_hours_start=13');await runWithdrawalMaintenance(db,runAccount,()=>time);assert.deepEqual(audit,[]);
+ db.exec("UPDATE accounts SET active_hours_start=9,working_days='2'");await runWithdrawalMaintenance(db,runAccount,()=>time);assert.deepEqual(audit,[]);
+ db.exec("UPDATE accounts SET working_days='1,2,3,4,5',is_authenticated=0");await runWithdrawalMaintenance(db,runAccount,()=>time);assert.deepEqual(audit,[]);
+ db.exec('UPDATE accounts SET is_authenticated=1');await runWithdrawalMaintenance(db,runAccount,()=>time);
+ assert.deepEqual(audit,['inspect:a','would-withdraw:a']);assert.equal(job(db).status,'verification_required');assert.equal(job(db).action_started,0);
+ await runWithdrawalMaintenance(db,runAccount,()=>time);assert.equal(audit.length,2,'duplicate tick obeys backoff');
+ db.close();db=new DB(file);t.after(()=>db.close());
+ time+=3600000;state='accepted';await runWithdrawalMaintenance(db,runAccount,()=>time);assert.deepEqual(audit,['inspect:a','would-withdraw:a','inspect:a']);assert.equal(job(db).status,'accepted');
+ assert.equal(track(db,'em').state,'in_progress');
+ const disabled=fixture(t);disabled.exec(`ALTER TABLE accounts ADD COLUMN is_authenticated INTEGER DEFAULT 1;
+ ALTER TABLE accounts ADD COLUMN active_hours_start INTEGER DEFAULT 9; ALTER TABLE accounts ADD COLUMN active_hours_end INTEGER DEFAULT 18;
+ ALTER TABLE accounts ADD COLUMN timezone TEXT DEFAULT 'UTC'; ALTER TABLE accounts ADD COLUMN working_days TEXT DEFAULT '1,2,3,4,5';`);
+ store.configure(disabled,'w',{enabled:false,days:30},now);
+ await runWithdrawalMaintenance(disabled,async()=>assert.fail('disabled job selected'),()=>now);assert.equal(job(disabled).status,'cancelled');
+});
