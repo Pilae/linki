@@ -73,16 +73,34 @@ The implementation reuses its authenticated Playwright session, profile-card
 resolver and localized connection-degree labels. It does not import missing `ee/`
 code, alter licensing or solve/bypass authentication challenges.
 
-`lib/withdrawals/linkedin.ts` supports one **synthetic-fixture-tested** normalized
-sent-invitation response schema and exact-identity DOM row contract. It performs
-read-only authenticated Voyager requests in the existing browser context, then
-uses the normal row Withdraw button and confirmation dialog. These internal
-response and DOM contracts are not official supported LinkedIn APIs and **have
-not passed real-account validation**. The authorized read-only probe below confirmed
-that the current response and DOM fail closed.
-No name-only, sidebar, profile Pending, or Remove connection fallback exists.
-Unsupported languages/actions, missing identity attributes, pagination truncation,
-list changes, authentication walls and ambiguous profile cards stop the action.
+`lib/withdrawals/linkedin.ts` supports the observed normalized member-invitation
+schema (`*elements`, `*fromMember`, `*toMember`, and `invitee.*miniProfile`), plus the
+original explicit-total fixture contract. It resolves references and requires a
+unique sender, recipient, invitation entity URN and provider timestamp. It does
+not conflate `mailboxItemId` with the invitation entity URN or use message secrets.
+Unknown/missing recipient references reject the entire snapshot, not just that row.
+
+For the observed schema, completeness requires the visible People/Personnes count,
+all pages through an explicit empty terminal page, and a second identical full
+scan. Account identity is checked at both ends. Counts, identities, ordering,
+timestamps or schema changes reject the snapshot. Scans remain capped at 20 pages
+per pass and a shared 30-second budget. This is an observational consistency check,
+not an atomic LinkedIn snapshot; it cannot eliminate every external race.
+
+The UI binding requires one verified invitation per recipient/profile and one
+list item in the observed lazy-column containing only that canonical profile's
+links. A name is never the lookup key. The named withdrawal link and matching
+confirmation button are cross-checks. Exact invitation-ID rows remain supported;
+conflicting attributes reject a row. Bounded read-only scrolling can load later
+rows; failure to load or ambiguity stops the attempt. The provider repeats the
+snapshot before opening the dialog and immediately before authorization.
+
+The response and DOM contracts are unofficial. Read-only validation has verified
+member records and row resolution, but **full-account verification remains blocked
+on the observed account by two invitations with unresolved recipient references**.
+No provider-driven real withdrawal has been tested. Unsupported actions/languages,
+authentication or CAPTCHA walls and ambiguous profile cards stop the action.
+No name-only, sidebar, profile Pending or Remove connection fallback exists.
 
 A fresh complete list and positive profile evidence distinguish:
 
@@ -163,7 +181,7 @@ request; they never access a real invitation or start the outreach runner.
 ```sh
 npm ci
 npx playwright install chromium
-node --test tests/withdrawals.test.cjs tests/withdrawal-api.test.cjs tests/withdrawal-browser.test.cjs tests/withdrawal-twenty.test.cjs
+npm run test:withdrawals
 node --test tests/enrollment.test.cjs
 node tests/accepted-sync.cjs
 node tests/campaign-metrics.cjs
@@ -208,20 +226,18 @@ campaign policy enabled, or service deployed.
 
 That invitation had no campaign-owned ledger record. This was a manual UI test,
 not a queue/provider end-to-end test; no ownership or timestamp was fabricated.
-The observed French UI uses a named withdrawal link and a target-specific dialog
-button, differing from the synthetic provider contract. The subsequent read-only probe below confirmed automatic incompatibility with
-the observed account; the implementation must continue to fail closed. Before enabling
-on a real account, verify the normalized schema, sender identity, timestamp units,
-pagination and exact invitation-row attributes using read-only observations with
-the owner's authorization. Unsupported contracts must remain blocked until
-captured, reviewed and covered by sanitized fixtures. A live withdrawal requires
-explicit user approval naming that specific invitation and sending account.
+The first read-only probe identified incompatible response/DOM contracts. The
+2026-09-23 revision adds the observed member schema and row binding; the follow-up
+probe still rejects full-account verification because two records lack recipient
+references. Keep this account's automation disabled. No existing invitation was
+adopted into a campaign. Further live withdrawal requires explicit approval naming
+that specific invitation and sending account.
 Acceptance-versus-withdrawal races and post-action consistency have only been
 exercised synthetically; no claim of live LinkedIn compatibility is made.
 
 ## Delivery validation
 
-The 43-test withdrawal suite covers policy boundaries and invalid payloads, exact/accepted/
+The 63-test withdrawal suite covers policy boundaries and invalid payloads, exact/accepted/
 absent/ambiguous states, ownership conflicts, lifecycle changes, queue deduplication,
 SQLite lock contention, restart recovery, partial failures and bounded verification.
 Regression cases cover actual manual unenrollment (including completed tracks and
@@ -239,7 +255,7 @@ root warning; no premium code was installed to silence them.
 
 ## Read-only provider validation — 2026-09-22
 
-**Result: incompatible with the observed account; do not enable automatic withdrawal.**
+**Historical result at `0c7f637`: incompatible. See the follow-up below.**
 The probe exercised `readJson` and `readSnapshot` from commit `0c7f637` using the
 existing Linki sandbox session. SQLite was opened read-only, no campaigns were
 running, and the probe blocked all non-GET/HEAD/OPTIONS browser requests. No worker,
@@ -265,10 +281,42 @@ sender/recipient/identity invariant for every invitation. `inspect` cannot class
 pending, accepted or absent invitations until snapshot parsing succeeds. No
 campaign ownership was inferred from these existing invitations.
 
-Synthetic reconstructions now test rejection of the observed response (including
-an empty later page) and zero clicks on the observed row layout. They intentionally
-do not make this layout actionable. Before dry-run scheduling, support needs a
-reviewed mapping for the live identity references, a completeness/consistency rule
-without `paging.total`, and a proven binding from invitation identity to its UI
-row. Merely accepting `*elements`, using a name or adopting relative UI dates would
-not satisfy those requirements.
+At this stage the synthetic reconstructions tested rejection. The follow-up
+revision below adds strict support for the observed member schema without
+silently dropping unresolved records.
+
+## Provider revision and read-only follow-up — 2026-09-23
+
+The revision adds identity-reference validation, two complete scans with UI-count
+agreement, canonical profile-to-row binding, a target-specific dialog check, and
+CAPTCHA detection. New intercepted-browser fixtures cover a 105-record collection,
+count mismatch, same-count content changes, unresolved/duplicate recipients,
+wrong/unresolved sender, missing terminal page, duplicate/wrong/conflicting rows,
+wrong dialog, cancellation, final-check mutation, and synthetic confirmed absence.
+All 63 tests, TypeScript, focused ESLint and the isolated production build pass.
+
+The bounded read-only follow-up verified the expected sender and parsed 100 member
+records. The first record resolved to one named withdrawal link in its exact profile
+row. Full-account verification failed at two records on the later page with no
+`*toMember` recipient reference; they were not skipped or inferred from names/email.
+The probe therefore exited nonzero. Its row-resolution result was explicitly
+partial (`fullSnapshot: false`) and did not authorize any action. No campaign,
+invitation, stored session or deployment was changed.
+
+Reproduce with the existing authorized sandbox session and its usual encryption
+configuration. Use the documented Node 24 runtime; do not copy credentials into
+commands or reports. The script refuses to run if any campaign is running, opens
+SQLite read-only, blocks non-GET/HEAD/OPTIONS requests, prints structural results
+only, and never calls a send/withdrawal/worker/login/session-save function:
+
+```sh
+LINKI_DB_PATH=/absolute/path/to/sandbox.db \
+WITHDRAWAL_PROBE_ACCOUNT=approved-local-account-id \
+WITHDRAWAL_PROBE_EXPECTED_PROFILE=approved-public-profile-slug \
+node scripts/validate-withdrawals-readonly.cjs
+```
+
+A successful first page or row binding is insufficient for dry-run scheduling or
+live enablement. Resolving the remaining recipient variant requires reliable
+identity evidence; filtering those records out is not an acceptable workaround.
+The end-to-end live queue/provider and post-action consistency remain unvalidated.

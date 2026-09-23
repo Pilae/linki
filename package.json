@@ -3,7 +3,7 @@
   "version": "0.1.0",
   "private": true,
   "scripts": {
-    "test:withdrawals": "node --test tests/withdrawals.test.cjs tests/withdrawal-api.test.cjs tests/withdrawal-browser.test.cjs tests/withdrawal-twenty.test.cjs",
+    "test:withdrawals": "node --test tests/withdrawals.test.cjs tests/withdrawal-api.test.cjs tests/withdrawal-browser.test.cjs tests/withdrawal-live-contract.test.cjs tests/withdrawal-twenty.test.cjs",
     "predev": "node scripts/mirror-ee.js",
     "dev": "next dev",
     "prebuild": "node scripts/mirror-ee.js",
